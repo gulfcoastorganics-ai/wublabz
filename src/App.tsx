@@ -1,8 +1,12 @@
 import React, { Component, type ErrorInfo, type ReactNode, useState } from 'react';
 import { WubPad } from './wubpad-integration/WubPad';
 import { EngineMonitor } from './wubpad-integration/EngineMonitor';
+import { SampleManglerView } from './producer-tools/SampleManglerView';
+import { BassSynthView } from './producer-tools/BassSynthView';
+import { FlipPrepView } from './producer-tools/FlipPrepView';
+import { RemixToDubstepView } from './producer-tools/RemixToDubstepView';
 
-type AppView = 'pad' | 'engine';
+type AppView = 'pad' | 'engine' | 'mangler' | 'synth' | 'flip-prep' | 'remix-dubstep';
 
 type ErrorBoundaryProps = {
   children: ReactNode;
@@ -74,6 +78,34 @@ function App() {
         >
           WubLabz Engine Dashboard
         </button>
+        <button
+          type="button"
+          onClick={() => setView('mangler')}
+          style={{ ...styles.tabButton, ...(view === 'mangler' ? styles.activeTabButton : {}) }}
+        >
+          Sample Mangler
+        </button>
+        <button
+          type="button"
+          onClick={() => setView('synth')}
+          style={{ ...styles.tabButton, ...(view === 'synth' ? styles.activeTabButton : {}) }}
+        >
+          Bass Synth
+        </button>
+        <button
+          type="button"
+          onClick={() => setView('flip-prep')}
+          style={{ ...styles.tabButton, ...(view === 'flip-prep' ? styles.activeTabButton : {}) }}
+        >
+          Flip Prep
+        </button>
+        <button
+          type="button"
+          onClick={() => setView('remix-dubstep')}
+          style={{ ...styles.tabButton, ...(view === 'remix-dubstep' ? styles.activeTabButton : {}) }}
+        >
+          Remix to Dubstep
+        </button>
       </nav>
 
       <section style={styles.instructions} aria-label="Connection instructions">
@@ -83,7 +115,12 @@ function App() {
 
       <main style={styles.main}>
         <ErrorBoundary boundaryKey={view}>
-          {view === 'pad' ? <WubPad /> : <EngineMonitor />}
+          {view === 'pad' && <WubPad />}
+          {view === 'engine' && <EngineMonitor />}
+          {view === 'mangler' && <SampleManglerView />}
+          {view === 'synth' && <BassSynthView />}
+          {view === 'flip-prep' && <FlipPrepView />}
+          {view === 'remix-dubstep' && <RemixToDubstepView />}
         </ErrorBoundary>
       </main>
     </div>
