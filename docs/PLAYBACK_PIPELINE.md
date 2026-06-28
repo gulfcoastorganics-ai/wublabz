@@ -24,6 +24,8 @@ No UI component, server handler, scene trigger, macro, or engine helper should s
 TimelineEventV2[] -> EventScheduler -> TimelineEventRouter -> ToneAdapter -> BusGraph
 ```
 
+The producer tools added for local sound design use the same boundary principle at tool scope: React views delegate decode, graph construction, playback, export, and persistence to shared `src/lib/*` modules. Pure DSP transforms are isolated in `src/lib/producer-tools` and covered by Vitest.
+
 ## Event Ownership
 
 - `ArrangementReconstructionEngine` creates `TimelineEventV2[]`.

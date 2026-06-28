@@ -30,12 +30,14 @@ Audio File
 ## Runtime Boundaries
 
 - `server.ts` owns HTTP/WebSocket transport only.
+- `server.ts` proxies Flip Prep HTTP jobs to the standalone `src/flip-worker` process; Demucs never runs inside the WubPad/ENGINE_STATUS process.
 - `protocol.ts` owns inbound event validation.
 - `RuntimeController` owns orchestration and diagnostics updates.
 - `WubLabzEngine` owns playback engine composition.
 - `PlaybackTransport` coordinates scheduler and renderer.
 - `ToneAdapter` owns Tone rendering primitives.
 - `BusGraph` owns audio graph lifecycle and modulation parameter binding.
+- Producer tools under `src/producer-tools/` must call shared modules in `src/lib/audio`, `src/lib/playback`, `src/lib/export`, and `src/lib/persistence`; DSP-only logic belongs in `src/lib/producer-tools`.
 
 ## Producer Intelligence
 
@@ -66,5 +68,5 @@ Runtime diagnostics track:
 ## Current Limitations
 
 - Source classification is still lightweight.
-- Stem separation is not implemented as a dedicated worker.
 - Route actions for macro/modulation/gain/mute are typed but not all renderer actions are fully materialized.
+- Flip Prep local separation is implemented through Demucs subprocesses. Cloud separation remains a future `StemSeparator` adapter.

@@ -8,7 +8,7 @@ WubLabz currently has three Node worker-thread entrypoints:
 - `src/lib/audio/waveform.worker.ts`
 - `src/lib/audio/analysis.worker.ts`
 
-There is no `stem.worker.ts` yet.
+Flip Prep now uses a standalone TypeScript process under `src/flip-worker/` instead of a Node worker thread because Demucs is a heavyweight Python subprocess pipeline.
 
 ## Decode Worker
 
@@ -66,5 +66,61 @@ Missing input returns:
 ## Current Limitations
 
 - Worker handlers are exported and testable, but lifecycle cleanup tests for actual `Worker` instances are still roadmap.
-- Stem separation is not workerized yet.
+- Stem separation is isolated behind `StemSeparator`; only `LocalDemucsSeparator` is implemented.
+- `SEPARATOR=cloud` is reserved for a future Replicate/Modal adapter.
 - Full DSP offload should remain additive; do not rewrite the playback pipeline to add workerization.
+
+## Flip Prep Worker
+
+Entrypoint:
+
+```bash
+npm run flip-worker
+```
+
+Endpoints:
+
+- `POST /api/flip-prep/jobs`
+- `GET /api/flip-prep/jobs/:jobId`
+- `GET /api/flip-prep/jobs/:jobId/files/:name`
+
+The main WubLabz server proxies the same paths to `FLIP_WORKER_URL`, defaulting to `http://127.0.0.1:3002`.
+
+The local separator defaults to fast vocals-only separation:
+
+```bash
+python3 -m demucs --mp3 -n htdemucs -o <outDir> --two-stems vocals <input>
+```
+
+Set `FLIP_PREP_STEMS=full` to request drums/bass/vocals/other:
+
+```bash
+python3 -m demucs --mp3 -n htdemucs -o <outDir> <input>
+```
+
+`LocalDemucsSeparator` does not pass `--shifts` by default. This avoids test-time augmentation and keeps local runs fast. Set `DEMUCS_SEGMENT_SECONDS=<seconds>` to pass `--segment`; shorter segments can reduce memory use and sometimes improve throughput on constrained machines, while longer/default segmentation may preserve quality and context.
+
+Key/BPM analysis starts in parallel with Demucs because it reads the original audio. The final stretch waits for both the detected BPM and the vocals stem.
+
+Analysis:
+
+```bash
+python3 src/flip-worker/python/analyze_and_stretch.py --mode analyze --input <input>
+```
+
+Stretch:
+
+```bash
+python3 src/flip-worker/python/analyze_and_stretch.py --mode stretch --input <input> --vocals <vocals.mp3> --output <acapella_140.wav> --bpm <detectedBpm>
+```
+
+## Flip Prep Local Speed Controls
+
+- `FLIP_PREP_STEMS=vocals` (default): uses Demucs `--two-stems vocals`; fastest path for acapella-focused flips.
+- `FLIP_PREP_STEMS=full`: returns drums, bass, vocals, and other; slower but useful for full stem packs.
+- `FLIP_PREP_CACHE_DIR`: stores content-hash stem outputs.
+- `FLIP_PREP_CACHE_MAX_AGE_MS`: removes old cache entries.
+- `FLIP_PREP_CACHE_MAX_BYTES`: removes least-recently-touched entries when the cache grows too large.
+- `DEMUCS_SEGMENT_SECONDS`: optional `--segment` value for speed/memory tuning.
+
+Cache key is `sha256(input) + stem mode`, so a two-stem hit does not satisfy a full-stem request and vice versa. Cache hits skip Demucs entirely, copy cached stems into the current job workspace, and return those job-local paths for downloads.
