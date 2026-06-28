@@ -3,6 +3,7 @@ import websocket from '@fastify/websocket';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { FLIP_PREP_API_PREFIX, FLIP_PREP_DEFAULT_WORKER_URL, createFlipPrepError } from '../lib/producer-tools/flipPrepTypes.js';
 import { RuntimeController } from './runtimeController.js';
 import { parseAndValidateInboundEvent } from './protocol.js';
 import {
@@ -28,21 +29,61 @@ export interface WubLabzServerOptions {
   logger?: boolean;
   now?: () => number;
   startedAtMs?: number;
+  flipPrepWorkerUrl?: string;
+  flipPrepMaxUploadBytes?: number;
 }
 
 export async function createWubLabzServer(options: WubLabzServerOptions = {}) {
-  const server = Fastify({ logger: options.logger ?? true });
+  const flipPrepMaxUploadBytes = options.flipPrepMaxUploadBytes ?? numberEnv(process.env.FLIP_PREP_MAX_UPLOAD_BYTES, 250 * 1024 * 1024);
+  const server = Fastify({
+    logger: options.logger ?? true,
+    bodyLimit: flipPrepMaxUploadBytes + 1024 * 1024
+  });
   await server.register(websocket);
 
   const runtimeController = new RuntimeController();
   runtimeController.initializeRuntime();
   const startedAtMs = options.startedAtMs ?? Date.now();
   const now = options.now ?? Date.now;
+  const flipPrepWorkerUrl = options.flipPrepWorkerUrl ?? process.env.FLIP_WORKER_URL ?? FLIP_PREP_DEFAULT_WORKER_URL;
 
   let activeConnections = 0;
 
+  server.addContentTypeParser(/^multipart\/form-data/i, { parseAs: 'buffer' }, (_request, body, done) => {
+    done(null, body);
+  });
+
   server.get('/health', async () => {
     return createHealthResponse(startedAtMs, now());
+  });
+
+  server.post(`${FLIP_PREP_API_PREFIX}/jobs`, async (request, reply) => {
+    const response = await proxyFlipPrepRequest(flipPrepWorkerUrl, `${FLIP_PREP_API_PREFIX}/jobs`, {
+      method: 'POST',
+      body: request.body as Buffer,
+      contentType: request.headers['content-type']
+    });
+    reply.code(response.status);
+    return response.body;
+  });
+
+  server.get(`${FLIP_PREP_API_PREFIX}/jobs/:jobId`, async (request, reply) => {
+    const params = request.params as { jobId?: string };
+    const response = await proxyFlipPrepRequest(flipPrepWorkerUrl, `${FLIP_PREP_API_PREFIX}/jobs/${encodeURIComponent(params.jobId ?? '')}`);
+    reply.code(response.status);
+    return response.body;
+  });
+
+  server.get(`${FLIP_PREP_API_PREFIX}/jobs/:jobId/files/:name`, async (request, reply) => {
+    const params = request.params as { jobId?: string; name?: string };
+    const response = await proxyFlipPrepRequest(
+      flipPrepWorkerUrl,
+      `${FLIP_PREP_API_PREFIX}/jobs/${encodeURIComponent(params.jobId ?? '')}/files/${encodeURIComponent(params.name ?? '')}`,
+      { binary: true }
+    );
+    reply.code(response.status);
+    if (response.contentType) reply.type(response.contentType);
+    return response.binary ? reply.send(Buffer.from(response.binary)) : response.body;
   });
 
   // WebSocket connection handler
@@ -167,6 +208,47 @@ export async function startServer(): Promise<WubLabzServerStartResult> {
   }
 }
 
+async function proxyFlipPrepRequest(
+  workerUrl: string,
+  pathname: string,
+  options: { method?: 'GET' | 'POST'; body?: Buffer; contentType?: string | string[]; binary?: boolean } = {}
+): Promise<{ status: number; body?: unknown; binary?: ArrayBuffer; contentType?: string }> {
+  try {
+    const headers: Record<string, string> = {};
+    if (typeof options.contentType === 'string') {
+      headers['content-type'] = options.contentType;
+    }
+    const init: RequestInit = {
+      method: options.method ?? 'GET',
+      headers,
+      ...(options.body ? { body: options.body as any, duplex: 'half' as any } : {})
+    };
+    const response = await fetch(`${workerUrl}${pathname}`, init);
+    const contentType = response.headers.get('content-type') ?? undefined;
+    if (options.binary) {
+      return { status: response.status, binary: await response.arrayBuffer(), contentType };
+    }
+    return { status: response.status, body: await response.json().catch(() => ({})), contentType };
+  } catch {
+    const detail = createFlipPrepError(
+      'WORKER_UNAVAILABLE',
+      'Flip Prep worker is not reachable.',
+      `Start the worker with npm run flip-worker or set FLIP_WORKER_URL. Current worker URL: ${workerUrl}`
+    );
+    return {
+      status: 503,
+      body: {
+        jobId: 'worker-unavailable',
+        status: 'error',
+        step: 'queued',
+        progress: 1,
+        error: detail.message,
+        errorDetail: detail
+      }
+    };
+  }
+}
+
 if (isMainModule()) {
   startServer().catch((err) => {
     console.error(err);
@@ -199,4 +281,10 @@ function isMainModule(): boolean {
   if (!entry) return false;
 
   return fileURLToPath(import.meta.url) === path.resolve(entry);
+}
+
+function numberEnv(value: string | undefined, fallback: number): number {
+  if (!value) return fallback;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }

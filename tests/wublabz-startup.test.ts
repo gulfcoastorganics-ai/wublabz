@@ -51,6 +51,34 @@ describe('WubLabz startup diagnostics', () => {
     }
   });
 
+  it('allows Flip Prep uploads above Fastify default body limit for proxying', async () => {
+    const server = await createWubLabzServer({
+      logger: false,
+      flipPrepWorkerUrl: 'http://127.0.0.1:1',
+      flipPrepMaxUploadBytes: 2 * 1024 * 1024
+    });
+    const boundary = 'limit-test';
+    const body = Buffer.concat([
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="loop.wav"\r\nContent-Type: audio/wav\r\n\r\n`),
+      Buffer.alloc(1024 * 1024 + 16, 1),
+      Buffer.from(`\r\n--${boundary}--\r\n`)
+    ]);
+
+    try {
+      const response = await server.inject({
+        method: 'POST',
+        url: '/api/flip-prep/jobs',
+        headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+        payload: body
+      });
+
+      expect(response.statusCode).toBe(503);
+      expect(response.json()).toMatchObject({ status: 'error', error: 'Flip Prep worker is not reachable.' });
+    } finally {
+      await server.close();
+    }
+  });
+
   it('accepts WebSocket clients and WubPad heartbeat messages', async () => {
     const server = await createWubLabzServer({ logger: false });
 

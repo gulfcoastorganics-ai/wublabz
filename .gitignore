@@ -1,5 +1,6 @@
 node_modules/
 dist/
+.next/
 .vite/
 .cache/
 coverage/
@@ -7,6 +8,27 @@ coverage/
 .env.local
 .env.example
 *.log
+_jobs/
+__pycache__/
+.venv/
+*.pyc
+
+# Local/generated audio and model artifacts
+test-audio/
+*.mp3
+*.wav
+*.flac
+*.aiff
+*.ogg
+demucs/
+Demucs/
+*/demucs/
+*/Demucs/
+models/
+*/models/
+
+# Separate sibling project; never commit into WubLabz
+phantomlabz/
 
 # Home-directory and agent state
 .Xauthority
@@ -61,6 +83,8 @@ antigravity-ide/
 projects/
 import
 *.py
+!src/flip-worker/python/
+!src/flip-worker/python/*.py
 pyproject.toml
 harvested_content.txt
 survey_contents.txt
