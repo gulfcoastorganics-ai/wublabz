@@ -95,6 +95,29 @@ describe('WubWebSocketClient', () => {
     expect(MockWebSocket.instances.length).toBe(3);
   });
 
+  it('uses injectable client ids and reconnect jitter', async () => {
+    client.disconnect();
+    client = new WubWebSocketClient({
+      url: 'ws://127.0.0.1:3001',
+      autoConnect: false,
+      clientIdFactory: () => 'wubpad-test-id',
+      reconnectJitterMs: (attempt: number) => attempt * 25
+    });
+
+    expect(client.getClientId()).toBe('wubpad-test-id');
+
+    client.connect();
+    MockWebSocket.instances[0].triggerOpen();
+    MockWebSocket.instances[0].triggerClose(false, 1006);
+
+    await vi.advanceTimersByTimeAsync(1024);
+    expect(MockWebSocket.instances.length).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(MockWebSocket.instances.length).toBe(2);
+    expect(client.getStatus()).toBe('reconnecting');
+  });
+
   it('trips circuit breaker after repeated failures', async () => {
     client.connect();
     

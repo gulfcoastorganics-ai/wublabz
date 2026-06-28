@@ -6,11 +6,15 @@ export type WubConnectionStatus = 'idle' | 'connecting' | 'connected' | 'disconn
 export interface WubWebSocketClientOptions {
   url?: string;
   clientId?: string;
+  clientIdFactory?: () => string;
   autoConnect?: boolean;
   maxReconnectAttempts?: number;
   baseReconnectDelay?: number;
   maxReconnectDelay?: number;
+  reconnectJitterMs?: (attempt: number) => number;
 }
+
+let generatedClientIdCounter = 0;
 
 export class WubWebSocketClient {
   private ws: WebSocket | null = null;
@@ -31,6 +35,7 @@ export class WubWebSocketClient {
   private heartbeatInterval: any = null;
   private readonly url: string;
   private readonly clientId: string;
+  private readonly reconnectJitterMs: (attempt: number) => number;
   
   private failureWindowStart = 0;
   private failuresInWindow = 0;
@@ -39,10 +44,11 @@ export class WubWebSocketClient {
 
   constructor(options: WubWebSocketClientOptions = {}) {
     this.url = options.url ?? getWubLabzWsUrl();
-    this.clientId = options.clientId ?? `wubpad-${Math.random().toString(36).substring(2, 9)}`;
+    this.clientId = options.clientId ?? options.clientIdFactory?.() ?? createDefaultClientId();
     this.baseReconnectDelay = options.baseReconnectDelay ?? 1000;
     this.maxReconnectDelay = options.maxReconnectDelay ?? 30000;
     this.maxReconnectAttempts = options.maxReconnectAttempts ?? 50;
+    this.reconnectJitterMs = options.reconnectJitterMs ?? ((attempt) => deterministicReconnectJitterMs(this.clientId, attempt));
     this.reconnectDelay = this.baseReconnectDelay;
 
     if (options.autoConnect) {
@@ -173,8 +179,8 @@ export class WubWebSocketClient {
 
     this.reconnectAttempts++;
     
-    // Exponential backoff with jitter
-    const jitter = Math.random() * 200;
+    // Exponential backoff with deterministic jitter keeps reconnect waves spread without hidden randomness.
+    const jitter = clampJitter(this.reconnectJitterMs(this.reconnectAttempts));
     const delay = Math.min(this.reconnectDelay + jitter, this.maxReconnectDelay);
     
     this.reconnectTimeout = setTimeout(() => {
@@ -271,6 +277,10 @@ export class WubWebSocketClient {
     return this.url;
   }
 
+  getClientId(): string {
+    return this.clientId;
+  }
+
   getLatency() {
     return this.latency;
   }
@@ -301,4 +311,27 @@ export class WubWebSocketClient {
 
 function getWebSocketConstructor(): typeof WebSocket | null {
   return typeof WebSocket === 'undefined' ? null : WebSocket;
+}
+
+function createDefaultClientId(): string {
+  generatedClientIdCounter += 1;
+  return `wubpad-${Date.now().toString(36)}-${generatedClientIdCounter.toString(36)}`;
+}
+
+function deterministicReconnectJitterMs(clientId: string, attempt: number): number {
+  return hashText(`${clientId}:${attempt}`) % 200;
+}
+
+function clampJitter(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(199, value));
+}
+
+function hashText(text: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
 }
