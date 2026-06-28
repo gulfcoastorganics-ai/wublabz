@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createWubLabzServer } from '../src/wublabz/server.js';
+import { loadFlipPrepWorkerConfig } from '../src/flip-worker/config.js';
+import { FLIP_PREP_DEFAULT_WORKER_PORT } from '../src/lib/producer-tools/flipPrepTypes.js';
+import { createWubLabzServer, resolveFlipPrepWorkerUrl } from '../src/wublabz/server.js';
 import {
   DEFAULT_WUBLABZ_PORT,
   WUBLABZ_VERSION,
@@ -20,6 +22,15 @@ describe('WubLabz startup diagnostics', () => {
     expect(resolveWubLabzPort({})).toBe(DEFAULT_WUBLABZ_PORT);
     expect(resolveWubLabzPort({ PORT: '3002' })).toBe(3002);
     expect(() => resolveWubLabzPort({ PORT: 'nope' })).toThrow('Invalid PORT "nope"');
+  });
+
+  it('keeps the Flip Prep proxy default aligned with the worker listener port', () => {
+    const workerConfig = loadFlipPrepWorkerConfig({});
+    const proxyUrl = new URL(resolveFlipPrepWorkerUrl({}));
+
+    expect(workerConfig.port).toBe(FLIP_PREP_DEFAULT_WORKER_PORT);
+    expect(proxyUrl.port).toBe(String(workerConfig.port));
+    expect(resolveFlipPrepWorkerUrl({ FLIP_WORKER_URL: 'http://127.0.0.1:4100' })).toBe('http://127.0.0.1:4100');
   });
 
   it('builds the requested health payload', () => {

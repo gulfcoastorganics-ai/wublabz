@@ -1,10 +1,11 @@
 import os from 'node:os';
 import path from 'node:path';
+import { FLIP_PREP_DEFAULT_WORKER_PORT } from '../lib/producer-tools/flipPrepTypes.js';
 import type { FlipPrepWorkerConfig } from './types.js';
 
 export function loadFlipPrepWorkerConfig(env: NodeJS.ProcessEnv = process.env): FlipPrepWorkerConfig {
   return {
-    port: numberEnv(env.FLIP_WORKER_PORT, 3002),
+    port: numberEnv(env.FLIP_WORKER_PORT, FLIP_PREP_DEFAULT_WORKER_PORT),
     host: env.FLIP_WORKER_HOST ?? '0.0.0.0',
     separator: env.SEPARATOR === 'cloud' ? 'cloud' : 'local',
     maxUploadBytes: numberEnv(env.FLIP_PREP_MAX_UPLOAD_BYTES, 250 * 1024 * 1024),

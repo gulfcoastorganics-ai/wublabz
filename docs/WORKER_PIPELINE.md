@@ -84,7 +84,9 @@ Endpoints:
 - `GET /api/flip-prep/jobs/:jobId`
 - `GET /api/flip-prep/jobs/:jobId/files/:name`
 
-The main WubLabz server proxies the same paths to `FLIP_WORKER_URL`, defaulting to `http://127.0.0.1:3002`.
+The browser and producer-tool UI call the main WubLabz API at `http://127.0.0.1:3001`. The main WubLabz server proxies those `/api/flip-prep/*` paths to `FLIP_WORKER_URL`.
+
+The canonical local Flip Prep worker default is `http://127.0.0.1:3002`; both the server proxy default and worker listener default are derived from the shared `FLIP_PREP_DEFAULT_WORKER_PORT` constant.
 
 The local separator defaults to fast vocals-only separation:
 

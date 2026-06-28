@@ -4,7 +4,12 @@ Flip Prep is a server-side song preparation workflow behind the existing fronten
 
 ## Runtime Shape
 
-The WubLabz server keeps `/api/flip-prep/*` as the app-facing endpoint and proxies those requests to the standalone TypeScript worker at `FLIP_WORKER_URL` (default `http://127.0.0.1:3002`).
+The WubLabz server keeps `/api/flip-prep/*` as the app-facing endpoint on the WubLabz API port, normally `http://127.0.0.1:3001`. It proxies those requests to the standalone TypeScript worker at `FLIP_WORKER_URL`.
+
+Canonical local defaults:
+
+- WubLabz API/client endpoint: `http://127.0.0.1:3001`
+- Flip Prep worker listener: `http://127.0.0.1:3002`
 
 ```text
 Frontend -> WubLabz server /api/flip-prep/* -> flip-worker -> Demucs/Python subprocesses
@@ -100,8 +105,8 @@ npm run wubpad
 
 Useful env vars:
 
-- `FLIP_WORKER_URL` for the WubLabz server proxy target.
-- `FLIP_WORKER_PORT` and `FLIP_WORKER_HOST` for the worker listener.
+- `FLIP_WORKER_URL` for the WubLabz server-to-worker proxy target; defaults to `http://127.0.0.1:3002`.
+- `FLIP_WORKER_PORT` and `FLIP_WORKER_HOST` for the worker listener; `FLIP_WORKER_PORT` defaults to `3002`.
 - `SEPARATOR=local|cloud`; only `local` is implemented.
 - `FLIP_PREP_STEMS=vocals|full`; defaults to `vocals` for Demucs `--two-stems vocals`.
 - `FLIP_PREP_CACHE_DIR`, `FLIP_PREP_CACHE_MAX_AGE_MS`, and `FLIP_PREP_CACHE_MAX_BYTES` control the content-hash stem cache.

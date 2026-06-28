@@ -45,7 +45,7 @@ export async function createWubLabzServer(options: WubLabzServerOptions = {}) {
   runtimeController.initializeRuntime();
   const startedAtMs = options.startedAtMs ?? Date.now();
   const now = options.now ?? Date.now;
-  const flipPrepWorkerUrl = options.flipPrepWorkerUrl ?? process.env.FLIP_WORKER_URL ?? FLIP_PREP_DEFAULT_WORKER_URL;
+  const flipPrepWorkerUrl = resolveFlipPrepWorkerUrl(process.env, options.flipPrepWorkerUrl);
 
   let activeConnections = 0;
 
@@ -233,7 +233,7 @@ async function proxyFlipPrepRequest(
     const detail = createFlipPrepError(
       'WORKER_UNAVAILABLE',
       'Flip Prep worker is not reachable.',
-      `Start the worker with npm run flip-worker or set FLIP_WORKER_URL. Current worker URL: ${workerUrl}`
+      `Start the worker with npm run flip-worker or set FLIP_WORKER_URL for the server-to-worker proxy. Browser clients should keep using the WubLabz API on port 3001. Current worker URL: ${workerUrl}`
     );
     return {
       status: 503,
@@ -247,6 +247,10 @@ async function proxyFlipPrepRequest(
       }
     };
   }
+}
+
+export function resolveFlipPrepWorkerUrl(env: { FLIP_WORKER_URL?: string } = process.env, override?: string): string {
+  return override ?? env.FLIP_WORKER_URL ?? FLIP_PREP_DEFAULT_WORKER_URL;
 }
 
 if (isMainModule()) {

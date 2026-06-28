@@ -44,7 +44,9 @@ export interface FlipPrepJob {
 export interface FlipPrepCreateJobResponse extends FlipPrepJob {}
 
 export const FLIP_PREP_API_PREFIX = '/api/flip-prep';
-export const FLIP_PREP_DEFAULT_WORKER_URL = 'http://127.0.0.1:3002';
+export const FLIP_PREP_DEFAULT_WORKER_HOST = '127.0.0.1';
+export const FLIP_PREP_DEFAULT_WORKER_PORT = 3002;
+export const FLIP_PREP_DEFAULT_WORKER_URL = `http://${FLIP_PREP_DEFAULT_WORKER_HOST}:${FLIP_PREP_DEFAULT_WORKER_PORT}`;
 
 export function createFlipPrepError(code: FlipPrepError['code'], message: string, actionable: string): FlipPrepError {
   return { code, message, actionable };
