@@ -441,22 +441,22 @@ function applyEnergyDeltaSuckOutAndImpacts(
     if (downbeatFrame >= left.length) continue;
 
     // 2.1 The Three-Layer Kick (impact transient)
-    addThreeLayerKick(left, right, downbeatFrame, sampleRate, 0.88);
+    addThreeLayerKick(left, right, downbeatFrame, sampleRate, 0.95);
 
     // 2.2 Deep 808 Sub Bass Hit on key tonic root (decaying sine sweep)
     const rootMidi = getRootMidi(detectedKey);
     const fSub = midiToFrequency(rootMidi);
-    const subDuration = 1.8 * beatSeconds;
+    const subDuration = 2.5 * beatSeconds;
     const subFrames = Math.floor(subDuration * sampleRate);
     let subPhase = 0;
     for (let i = 0; i < subFrames; i++) {
       const frame = downbeatFrame + i;
       if (frame >= left.length) continue;
       const t = i / sampleRate;
-      const env = Math.exp(-2.2 * (i / subFrames)); // exponential decay
+      const env = Math.exp(-1.5 * (i / subFrames)); // slower exponential decay
       const pitchSweep = 1.0 + 0.4 * Math.exp(-95 * t); // fast pitch sweep (impact slam)
       subPhase += (2 * Math.PI * (fSub * pitchSweep)) / sampleRate;
-      const subSample = Math.sin(subPhase) * env * 0.52; // massive low-end weight
+      const subSample = Math.sin(subPhase) * env * 0.70; // massive low-end weight
       left[frame] += subSample;
       right[frame] += subSample;
     }
@@ -482,7 +482,7 @@ function applyEnergyDeltaSuckOutAndImpacts(
       const alpha = dt / (rc + dt);
       filterState = filterState + alpha * (noiseVal - filterState);
 
-      const boomSample = filterState * env * 0.35;
+      const boomSample = filterState * env * 0.45;
       left[frame] += boomSample;
       right[frame] += boomSample;
     }
@@ -754,7 +754,10 @@ function drumDrop(
 
   if (kickGrid[stepInBar]) {
     const isAccent = stepInBar === 0;
-    addThreeLayerKick(left, right, frame, sampleRate, (isAccent ? 0.58 : 0.28) * vel);
+    const isFirstBarDownbeat = barIndex === 0 && stepInBar === 0;
+    if (!isFirstBarDownbeat) {
+      addThreeLayerKick(left, right, frame, sampleRate, (isAccent ? 0.65 : 0.52) * vel);
+    }
   }
 
   if (snareGrid[stepInBar]) {
@@ -915,6 +918,34 @@ function buildBassBar(scale: number[], phraseBar: number, phraseIndex: number, i
   }
 }
 
+function getSidechainGain(frame: number, sampleRate: number, bpm: number): number {
+  const beatSeconds = 60 / bpm;
+  const frameBeat = frame / (beatSeconds * sampleRate);
+  const barIndex = Math.floor(frameBeat / 4);
+  const isFillBar = (barIndex + 1) % 4 === 0;
+
+  // Kicks trigger at step 0 (beat 1), step 10 (beat 3-and) and step 13 (beat 4-e in fill bars)
+  const kickSteps = isFillBar ? [0, 10, 13] : [0, 10];
+  let minDistanceFrames = Infinity;
+  const barStartFrame = barIndex * 4 * beatSeconds * sampleRate;
+
+  for (const step of kickSteps) {
+    const kickFrame = Math.floor(barStartFrame + step * 0.25 * beatSeconds * sampleRate);
+    const dist = frame - kickFrame;
+    if (dist >= 0 && dist < minDistanceFrames) {
+      minDistanceFrames = dist;
+    }
+  }
+
+  const scDuration = 0.38 * beatSeconds; // ~150ms sidechain window
+  const scFrames = Math.floor(scDuration * sampleRate);
+  if (minDistanceFrames < scFrames) {
+    const t = minDistanceFrames / scFrames;
+    return Math.pow(t, 2.0); // smooth exponential recovery
+  }
+  return 1.0;
+}
+
 // Renders one bass note: sub layer (pure sine, mono, long) + mid layer (resonant filter sweep + drive).
 function renderBassNote(left: Float32Array, right: Float32Array, startFrame: number, sampleRate: number, bpm: number, note: BassNotePayload): void {
   const frames = Math.floor(note.durationBeats * (60 / bpm) * sampleRate);
@@ -924,7 +955,7 @@ function renderBassNote(left: Float32Array, right: Float32Array, startFrame: num
   const releaseFrames = Math.min(Math.floor(0.10 * sampleRate), Math.floor(frames * 0.40));
   const lfoHz = lfoSyncHz(bpm, note.wobbleDivision);
 
-  const subGain = note.isGhost ? 0 : 0.36 * note.velocity;
+  const subGain = note.isGhost ? 0 : 0.48 * note.velocity;
   const midGain = note.isGhost ? 0.14 * note.velocity : 0.22 * note.velocity;
   const fSub = note.subFrequencyHz;
   const fMid = note.frequencyHz;
@@ -972,8 +1003,9 @@ function renderBassNote(left: Float32Array, right: Float32Array, startFrame: num
     let midSample = mid * midGain * env;
     midSample = Math.tanh(midSample * 1.8) * 0.85;
 
-    left[startFrame + i] += subSample + midSample;
-    right[startFrame + i] += subSample + midSample * 0.88; // slight mid stereo width
+    const scGain = getSidechainGain(startFrame + i, sampleRate, bpm);
+    left[startFrame + i] += (subSample + midSample) * scGain;
+    right[startFrame + i] += (subSample + midSample * 0.88) * scGain; // slight mid stereo width
   }
 }
 
