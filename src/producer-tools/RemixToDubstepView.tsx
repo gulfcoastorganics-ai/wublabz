@@ -8,6 +8,7 @@ import { HttpFlipPrepClient, OfflineFlipPrepClient, resolveFlipPrepAssetUrl, typ
 import {
   arrangementDurationSeconds,
   generateRemixArrangement,
+  getRootMidi,
   midiToFrequency,
   regenerateArrangementElement,
   renderArrangementGuideMaster,
@@ -155,12 +156,15 @@ export function RemixToDubstepView() {
             const duration = note.durationBeats * (60 / arrangement.targetBpm);
 
             T.Transport.schedule((t: any) => {
+              const rootMidi = getRootMidi(arrangement.detectedKey);
+              const rootFrequencyHz = midiToFrequency(rootMidi);
               const voice = createGrowlVoice(
                 context,
                 preset,
                 note.frequencyHz,
                 getProducerAnalyser(),
-                arrangement.targetBpm
+                arrangement.targetBpm,
+                { rootFrequencyHz }
               );
               activeVoices.current.push(voice);
               voice.start(t);

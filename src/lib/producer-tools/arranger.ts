@@ -137,11 +137,37 @@ export function generateRemixArrangement(options: GenerateRemixArrangementOption
   const detectedKey = options.keyOverride ?? options.flipPrep.key;
   const scale = keyToMidiScale(detectedKey);
   const tracks = createTracks();
-  const bassPreset = {
-    ...randomGrowlPreset(`${seed}:bass`, DEFAULT_GROWL_PRESET),
+  const bassPreset: GrowlPreset = {
+    osc1: 'sawtooth',
+    osc2: 'square',
+    detuneCents: 12,
+    detuneSpreadCents: 16,
+    unisonVoices: 4,
+    cutoffHz: 820,
+    resonance: 12,
+    filterEnvelopeAmount: 0.78,
+    keyTrack: 0.32,
+    formantAmount: 0.45,
+    lfoShape: 'sine',
+    wobbleMode: 'sync',
+    syncDivision: '1/8',
+    freeHz: 4,
+    lfoDepth: 0.85,
+    secondLfoDepth: 0.35,
+    secondLfoHz: 0.65,
+    drive: 0.82,
+    driveType: 'foldback',
+    subLevel: 0.95,
+    attack: 0.005,
+    decay: 0.18,
+    sustain: 0.58,
+    release: 0.16,
+    filterAttack: 0.02,
+    filterDecay: 0.2,
+    filterSustain: 0.35,
+    filterRelease: 0.12,
     bpm: TARGET_BPM,
-    wobbleMode: 'sync' as const,
-    syncDivision: pickSyncDivision(rng)
+    glideSeconds: 0.08
   };
 
   addAcapellaClips(tracks.acapella, sections, options.flipPrep);
@@ -356,7 +382,7 @@ function mixArrangementStemsWithContext(stems: ChannelBuffer[], trackTypes: Remi
   return { sampleRate, channels: [left, right] };
 }
 
-function getRootMidi(key: string): number {
+export function getRootMidi(key: string): number {
   let clean = key.trim().split(' ')[0] || 'A';
   if (clean.endsWith('b') && clean.length > 1) {
     const flats: Record<string, string> = {
@@ -836,12 +862,14 @@ function buildBassBar(scale: number[], phraseBar: number, phraseIndex: number, i
 
   const n = (startBeat: number, durationBeats: number, midi: number, wob: SyncDivision, vel: number, ghost: boolean): BassNotePayload => {
     const freq = midiToFrequency(midi);
+    const rootFreq = midiToFrequency(root);
     return { 
       startBeat, 
       durationBeats, 
       midiNote: midi, 
       frequencyHz: Number(freq.toFixed(2)), 
-      subFrequencyHz: Number(resolveDubstepSubFrequency(freq).toFixed(2)), 
+      // Sub-bass is locked to the root key frequency for constant deep low-end body
+      subFrequencyHz: Number(resolveDubstepSubFrequency(rootFreq).toFixed(2)), 
       wobbleDivision: wob, 
       velocity: vel, 
       isGhost: ghost 
@@ -849,71 +877,72 @@ function buildBassBar(scale: number[], phraseBar: number, phraseIndex: number, i
   };
 
   if (!isSecondDrop) {
-    // DROP 1 — 1/4 anchor / 1/8 stab / 1/8. move / 1/4 fill with dark key-aware intervals (b2, b5, b7)
+    // DROP 1 — melodic and dynamic wub-rate bassline hook
     if (phraseBar === 0) {
-      // Anchor: root sits for 2 beats (in key), ghost on b2 (step 8)
+      // Melodic Hook - slow 1/8. to fast 1/8T triplet rise
       return [
-        n(0.0, 2.0, root, '1/4', 0.95, false),
-        n(2.0, 0.5, b2, '1/4', 0.45, true),
+        n(0.0, 1.5, root, '1/8.', 0.95, false),
+        n(1.5, 1.0, b7, '1/8T', 0.85, false),
+        n(2.5, 1.0, root, '1/8', 0.90, false),
       ];
     }
     if (phraseBar === 1) {
-      // Stab: root first (in key) + off-beat tritone (b5) or minor 7th (b7) stabs
+      // Tension stabs to 1/16 rapid wub burst
       const alt = phraseIndex % 2 === 0 ? b5 : b7;
       return [
-        n(0.0,  0.5,  root, '1/8', 0.90, false),
-        n(0.5,  0.25, alt,  '1/8', 0.48, true),
-        n(2.0,  0.75, root, '1/8', 0.85, false),
-        n(3.0,  0.25, alt,  '1/8', 0.45, true),
+        n(0.0, 1.0, root, '1/8', 0.90, false),
+        n(1.0, 1.0, b2, '1/8', 0.85, false),
+        n(2.0, 1.0, alt, '1/16', 0.92, false),
+        n(3.0, 1.0, fourth, '1/8', 0.80, false),
       ];
     }
     if (phraseBar === 2) {
-      // Melodic move: first note is diatonic (fifth/fourth), second note is chromatic b5
-      const move = phraseIndex % 2 === 0 ? fifth : fourth;
+      // Call and response - fifth calling, b5 & fourth responding with triplets
       return [
-        n(0.0, 1.5, move, '1/8.', 0.88, false),
-        n(1.5, 0.5, b5, '1/8.', 0.52, true),
-        n(2.5, 0.5, root, '1/8.', 0.55, true),
+        n(0.0, 1.5, fifth, '1/8T', 0.88, false),
+        n(1.5, 1.0, b5, '1/8T', 0.82, false),
+        n(2.5, 1.0, fourth, '1/8T', 0.85, false),
       ];
     }
-    // phraseBar === 3: Groove fill resolving to root (in key)
+    // phraseBar === 3: Groove resolve with 1/16th burst
     return [
-      n(0.0, 0.5,  root, '1/4', 0.85, false),
-      n(0.5, 0.25, b2, '1/4', 0.40, true),
-      n(2.0, 0.5,  root, '1/4', 0.80, false),
-      n(3.5, 0.25, minor3rd, '1/4', 0.38, true),
+      n(0.0, 1.0, b7, '1/8', 0.88, false),
+      n(1.0, 1.0, root, '1/16', 0.95, false),
+      n(2.0, 1.0, minor3rd, '1/8', 0.84, false),
+      n(3.0, 1.0, root, '1/8', 0.90, false),
     ];
   } else {
-    // DROP 2 — triplet/fast wobble, Locrian b2/b5 moves, syncopation
+    // DROP 2 — syncopated triplet/1/16 wub bursts, Locrian stabs, heavy resolve
     if (phraseBar === 0) {
-      // Long hold on fourth or fifth (diatonic, in key) with triplet LFO
-      const hold = phraseIndex % 2 === 0 ? fourth : fifth;
+      // Triplet drive to slow wub
       return [
-        n(0.0, 3.0,  hold, '1/8T', 0.92, false),
-        n(3.5, 0.25, root, '1/8T', 0.38, true),
+        n(0.0, 1.0, fourth, '1/16', 0.92, false),
+        n(1.0, 1.0, fifth, '1/8T', 0.88, false),
+        n(2.0, 1.5, root, '1/8', 0.90, false),
       ];
     }
     if (phraseBar === 1) {
-      // Stab burst: first note is root (in key), second is b2
+      // Syncopated melodic stab chain
       return [
-        n(0.0,  0.75, root, '1/16', 0.90, false),
-        n(1.0,  0.5,  b2, '1/16', 0.50, true),
-        n(2.0,  0.75, root, '1/16', 0.88, false),
-        n(2.75, 0.25, b5, '1/16', 0.36, true),
+        n(0.0,  0.75, root, '1/8', 0.90, false),
+        n(0.75, 0.75, b2, '1/16', 0.82, false),
+        n(1.5,  0.75, b5, '1/8T', 0.88, false),
+        n(2.25, 0.75, fourth, '1/8', 0.80, false),
+        n(3.0,  1.0,  root, '1/16', 0.85, false),
       ];
     }
     if (phraseBar === 2) {
-      // Dark move: first note is diatonic (b7 or fourth), second is tritone b5
-      const dark = phraseIndex % 2 === 0 ? b7 : fourth;
+      // Locrian hooks
       return [
-        n(0.0, 1.0, dark, '1/8T', 0.85, false),
-        n(1.5, 0.5, b5, '1/8T', 0.52, true),
-        n(3.0, 0.5, root, '1/8T', 0.55, true),
+        n(0.0, 1.5, b7, '1/8.', 0.88, false),
+        n(1.5, 1.0, b5, '1/16', 0.90, false),
+        n(2.5, 1.5, root, '1/8', 0.92, false),
       ];
     }
-    // phraseBar === 3: Sparse resolve to root (in key)
+    // phraseBar === 3: Long sustained root wub resolving the phrase
     return [
-      n(0.0, 2.0, root, '1/8', 0.88, false),
+      n(0.0, 1.0, fourth, '1/8', 0.85, false),
+      n(1.0, 3.0, root, '1/4', 0.95, false),
     ];
   }
 }
@@ -970,9 +999,8 @@ function renderBassNote(left: Float32Array, right: Float32Array, startFrame: num
     // LFO wobble controls both filter cutoff opening and amplitude
     const lfo = 0.48 + 0.52 * Math.sin(TAU * lfoHz * t);
 
-    // Sub: pure sine, mono — duck slightly when mid filter opens to prevent low-end smear
-    const subDuck = 1 - 0.28 * lfo;
-    const subSample = note.isGhost ? 0 : Math.sin(TAU * fSub * t) * subGain * env * subDuck;
+    // Sub: pure sine, mono — constant volume (no LFO wobble ducking)
+    const subSample = note.isGhost ? 0 : Math.sin(TAU * fSub * t) * subGain * env;
 
     // Mid: simulated resonant lowpass filter sweep on harmonic series (sawtooth approx)
     const cutoffHz = fMid * (1.5 + 5.0 * lfo); // sweep cutoff based on LFO

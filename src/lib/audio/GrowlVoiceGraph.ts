@@ -14,7 +14,7 @@ export function createGrowlVoice(
   frequencyHz: number,
   destination: any,
   engineBpm?: number,
-  options: { startFrequencyHz?: number } = {}
+  options: { startFrequencyHz?: number; rootFrequencyHz?: number } = {}
 ): GrowlVoice {
   const unisonVoices = clamp(Math.round(preset.unisonVoices ?? 1), 1, 4);
   const detuneSpreadCents = Math.max(0, preset.detuneSpreadCents ?? 0);
@@ -69,7 +69,7 @@ export function createGrowlVoice(
   }
 
   sub.type = 'sine';
-  const subFrequency = resolveDubstepSubFrequency(currentFrequencyHz);
+  const subFrequency = resolveDubstepSubFrequency(options.rootFrequencyHz ?? currentFrequencyHz);
   sub.frequency.value = subFrequency;
 
   carrierMix.gain.value = 0.96;
@@ -241,8 +241,8 @@ export function createGrowlVoice(
     for (const node of oscillators) {
       setRamp(node.frequency, currentFrequencyHz, targetFrequencyHz, safeTime, endTime);
     }
-    const nextSubFrequency = resolveDubstepSubFrequency(targetFrequencyHz);
-    setRamp(sub.frequency, resolveDubstepSubFrequency(currentFrequencyHz), nextSubFrequency, safeTime, endTime);
+    const nextSubFrequency = resolveDubstepSubFrequency(options.rootFrequencyHz ?? targetFrequencyHz);
+    setRamp(sub.frequency, resolveDubstepSubFrequency(options.rootFrequencyHz ?? currentFrequencyHz), nextSubFrequency, safeTime, endTime);
     setTarget(subLowpass.frequency, clamp(nextSubFrequency * 2.15, 86, 145), safeTime, Math.max(0.015, glideSeconds * 0.4));
     setTarget(bodyBand.frequency, clamp(targetFrequencyHz * 2, 115, 260), safeTime, Math.max(0.015, glideSeconds * 0.4));
     currentFrequencyHz = targetFrequencyHz;
