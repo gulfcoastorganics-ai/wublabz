@@ -1,6 +1,6 @@
 import type { FlipPrepResult } from './flipPrepTypes.js';
 import type { ChannelBuffer } from './mangler.js';
-import { DEFAULT_GROWL_PRESET, randomGrowlPreset, type GrowlPreset, type SyncDivision } from './synth.js';
+import { DEFAULT_GROWL_PRESET, randomGrowlPreset, resolveDubstepSubFrequency, lfoSyncHz, type GrowlPreset, type SyncDivision } from './synth.js';
 
 export type RemixSectionKind = 'intro' | 'buildup' | 'drop' | 'breakdown' | 'second-drop' | 'outro';
 export type RemixTrackType = 'acapella' | 'drums' | 'bass' | 'fills';
@@ -68,6 +68,18 @@ export interface GridEvent {
   durationBeats: number;
 }
 
+// Per-note event within a bass-growl clip — carries timing, pitch, sub/mid freqs, and LFO division
+interface BassNotePayload {
+  startBeat: number;
+  durationBeats: number;
+  midiNote: number;
+  frequencyHz: number;
+  subFrequencyHz: number;
+  wobbleDivision: SyncDivision;
+  velocity: number;
+  isGhost: boolean;
+}
+
 const TARGET_BPM = 140 as const;
 const SECTION_BARS: Array<[RemixSectionKind, string, number]> = [
   ['intro', 'Intro', 8],
@@ -77,6 +89,24 @@ const SECTION_BARS: Array<[RemixSectionKind, string, number]> = [
   ['second-drop', '2nd Drop', 16],
   ['outro', 'Outro', 8]
 ];
+
+// Energy gain ramps [startMult, endMult] — the contrast IS the genre
+const SECTION_ENERGY: Record<RemixSectionKind, [number, number]> = {
+  'intro':       [0.42, 0.62],
+  'buildup':     [0.66, 1.00], // rises continuously into the drop
+  'drop':        [1.00, 1.00],
+  'breakdown':   [0.30, 0.22], // pulled WAY back
+  'second-drop': [1.00, 1.00],
+  'outro':       [0.68, 0.16]  // fades out
+};
+
+// Per-track base level — sets relative balance: vocal on top, fills as texture
+const TRACK_LEVEL: Record<RemixTrackType, number> = {
+  'acapella': 0.82,
+  'drums':    0.72,
+  'bass':     0.65,
+  'fills':    0.48
+};
 
 const MAJOR_SCALE = [0, 2, 4, 5, 7, 9, 11];
 const MINOR_SCALE = [0, 2, 3, 5, 7, 8, 10];
@@ -206,9 +236,11 @@ export function regenerateArrangementElement(arrangement: RemixArrangement, elem
   } else if (element === 'acapella') {
     const buildup = sectionMap.get('buildup');
     const drop = sectionMap.get('drop');
+    const breakdown = sectionMap.get('breakdown');
     const secondDrop = sectionMap.get('second-drop');
     if (buildup) track.clips.push(createAudioClip(track.id, buildup, 'verse', next.flipPrep.acapella140Url));
     if (drop) track.clips.push(createAudioClip(track.id, drop, 'hook', next.flipPrep.acapella140Url));
+    if (breakdown) track.clips.push(createAudioClip(track.id, breakdown, 'verse-break', next.flipPrep.acapella140Url));
     if (secondDrop) track.clips.push(createAudioClip(track.id, secondDrop, 'hook-alt', next.flipPrep.acapella140Url));
   }
 
@@ -235,13 +267,17 @@ export function renderArrangementGuideStem(arrangement: RemixArrangement, trackT
 }
 
 export function renderArrangementGuideMaster(arrangement: RemixArrangement, sampleRate = 44100): ChannelBuffer {
-  const stems = arrangement.tracks.map((track) => renderArrangementGuideStem(arrangement, track.type, sampleRate));
-  return mixArrangementStems(stems);
+  const pairs = arrangement.tracks.map((track) => ({ stem: renderArrangementGuideStem(arrangement, track.type, sampleRate), type: track.type }));
+  const mixed = mixArrangementStemsWithContext(pairs.map((p) => p.stem), pairs.map((p) => p.type), arrangement);
+  applySuckOut(mixed.channels[0], mixed.channels[1], sampleRate, arrangement.targetBpm, arrangement.sections);
+  return mixed;
 }
 
 export function renderArrangementMasterWithAudio(arrangement: RemixArrangement, assets: RemixAudioAssets, sampleRate = 44100): ChannelBuffer {
-  const stems = arrangement.tracks.map((track) => renderArrangementStemWithAudio(arrangement, track.type, assets, sampleRate));
-  return mixArrangementStems(stems);
+  const pairs = arrangement.tracks.map((track) => ({ stem: renderArrangementStemWithAudio(arrangement, track.type, assets, sampleRate), type: track.type }));
+  const mixed = mixArrangementStemsWithContext(pairs.map((p) => p.stem), pairs.map((p) => p.type), arrangement);
+  applySuckOut(mixed.channels[0], mixed.channels[1], sampleRate, arrangement.targetBpm, arrangement.sections);
+  return mixed;
 }
 
 export function renderArrangementStemWithAudio(arrangement: RemixArrangement, trackType: RemixTrackType, assets: RemixAudioAssets, sampleRate = 44100): ChannelBuffer {
@@ -258,7 +294,7 @@ export function renderArrangementStemWithAudio(arrangement: RemixArrangement, tr
     if (clip.type === 'mangler-fill') renderFillClip(left, right, sampleRate, arrangement.targetBpm, clip);
     if (clip.type === 'audio') {
       if (!assets.acapella140) throw new Error('Real acapella audio is required to render Remix audio clips');
-      renderAudioClip(left, right, sampleRate, arrangement.targetBpm, clip, assets.acapella140, 0.82);
+      renderAudioClip(left, right, sampleRate, arrangement.targetBpm, clip, assets.acapella140, 1.05);
     }
   }
 
@@ -279,6 +315,67 @@ function mixArrangementStems(stems: ChannelBuffer[]): ChannelBuffer {
   return { sampleRate, channels: [left, right] };
 }
 
+// Section-energy + per-track-level mixer. Applies SECTION_ENERGY ramp × TRACK_LEVEL to each
+// stem on-the-fly so the master has real energy architecture without touching the raw stems.
+function mixArrangementStemsWithContext(stems: ChannelBuffer[], trackTypes: RemixTrackType[], arrangement: RemixArrangement): ChannelBuffer {
+  const sampleRate = stems[0]?.sampleRate ?? 44100;
+  const frames = stems[0]?.channels[0]?.length ?? 0;
+  const left = new Float32Array(frames);
+  const right = new Float32Array(frames);
+  const beatSeconds = 60 / arrangement.targetBpm;
+  const MIX_SAFETY = 0.92; // headroom for 4 tracks summing
+
+  for (let k = 0; k < stems.length; k++) {
+    const stem = stems[k];
+    const trackType = trackTypes[k];
+    if (!stem || !trackType) continue;
+
+    const trackLevel = TRACK_LEVEL[trackType];
+    const segments = arrangement.sections.map((section) => {
+      const [sm, em] = SECTION_ENERGY[section.kind];
+      return {
+        startFrame: Math.floor(section.startBar * 4 * beatSeconds * sampleRate),
+        endFrame:   Math.floor((section.startBar + section.bars) * 4 * beatSeconds * sampleRate),
+        startGain: sm * trackLevel,
+        endGain:   em * trackLevel
+      };
+    });
+
+    let si = 0;
+    for (let i = 0; i < frames; i++) {
+      while (si < segments.length - 1 && i >= segments[si].endFrame) si++;
+      const seg = segments[si];
+      const span = seg.endFrame - seg.startFrame;
+      const t = span > 0 ? Math.max(0, Math.min(1, (i - seg.startFrame) / span)) : 0;
+      const gain = (seg.startGain + (seg.endGain - seg.startGain) * t) * MIX_SAFETY;
+      left[i]  += (stem.channels[0]?.[i] ?? 0) * gain;
+      right[i] += (stem.channels[1]?.[i] ?? stem.channels[0]?.[i] ?? 0) * gain;
+    }
+  }
+
+  return { sampleRate, channels: [left, right] };
+}
+
+// Suck-out: silence the last 0.5 beats before each drop for that iconic vacuum-then-explosion moment.
+function applySuckOut(left: Float32Array, right: Float32Array, sampleRate: number, bpm: number, sections: RemixSection[]): void {
+  const beatSeconds = 60 / bpm;
+  const suckBeats = 0.5;
+
+  for (const section of sections.filter((s) => s.kind === 'drop' || s.kind === 'second-drop')) {
+    const dropBeat = section.startBar * 4;
+    const startFrame = Math.max(0, Math.floor((dropBeat - suckBeats) * beatSeconds * sampleRate));
+    const endFrame   = Math.floor(dropBeat * beatSeconds * sampleRate);
+    const span = endFrame - startFrame;
+    for (let i = startFrame; i < endFrame && i < left.length; i++) {
+      const t = (i - startFrame) / Math.max(1, span); // 0 → 1
+      // Fast dip to silence: fade out in first 65%, hold near zero for last 35%
+      const gain = t < 0.65 ? Math.max(0, 1 - t / 0.65) : 0;
+      left[i]  *= gain;
+      right[i] *= gain;
+    }
+  }
+}
+
 function createTracks(): Record<RemixTrackType, RemixTrack> {
   return {
     acapella: { id: 'track-acapella', type: 'acapella', name: 'Acapella 140', muted: false, solo: false, clips: [] },
@@ -290,7 +387,8 @@ function createTracks(): Record<RemixTrackType, RemixTrack> {
 
 function addAcapellaClips(track: RemixTrack, sections: RemixSection[], flipPrep: FlipPrepResult): void {
   const byId = new Map(sections.map((section) => [section.id, section]));
-  for (const [id, phrase] of [['buildup', 'verse'], ['drop', 'hook'], ['second-drop', 'hook-alt']] as const) {
+  // breakdown included — vocal fullness there is a key energy contrast moment
+  for (const [id, phrase] of [['buildup', 'verse'], ['drop', 'hook'], ['breakdown', 'verse-break'], ['second-drop', 'hook-alt']] as const) {
     const section = byId.get(id);
     if (section) track.clips.push(createAudioClip(track.id, section, phrase, flipPrep.acapella140Url));
   }
@@ -317,16 +415,17 @@ function addBassClips(track: RemixTrack, sections: RemixSection[], scale: number
 }
 
 function addBassClipsToTrack(track: RemixTrack, sections: RemixSection[], scale: number[], seed: string, bassPreset: GrowlPreset): void {
-  const rng = createArrangerRng(`${seed}:bass`);
-  for (const section of sections.filter((entry) => entry.kind === 'drop' || entry.kind === 'second-drop')) {
-    for (let bar = 0; bar < section.bars; bar += 2) {
-      const noteMidi = scale[Math.floor(rng() * scale.length)];
+  for (const section of sections.filter((s) => s.kind === 'drop' || s.kind === 'second-drop')) {
+    const isSecondDrop = section.kind === 'second-drop';
+    for (let bar = 0; bar < section.bars; bar++) {
+      const notes = buildBassBar(scale, bar % 4, Math.floor(bar / 4), isSecondDrop);
       const startBar = section.startBar + bar;
-      track.clips.push(createClip(track.id, 'bass-growl', { ...section, startBar, bars: 2 }, {
-        midi: noteMidi,
-        frequencyHz: Number(midiToFrequency(noteMidi).toFixed(2)),
+      // midi + frequencyHz kept for backward-compat with browser view (reads clip.payload.midi)
+      track.clips.push(createClip(track.id, 'bass-growl', { id: section.id, startBar, bars: 1 }, {
+        notes,
         preset: bassPreset,
-        wobbleDivision: bassPreset.syncDivision,
+        midi: notes.length > 0 ? notes[0].midiNote : 60,
+        frequencyHz: notes.length > 0 ? notes[0].frequencyHz : midiToFrequency(60),
         seed: `${seed}:${section.id}:bass:${bar}`
       }));
     }
@@ -404,6 +503,58 @@ function renderDrumClip(left: Float32Array, right: Float32Array, sampleRate: num
   }
 }
 
+// Three-layer kick design: SUB swept sine + MID swept sine/noise click + TOP click transient.
+function addThreeLayerKick(left: Float32Array, right: Float32Array, startFrame: number, sampleRate: number, gain: number): void {
+  const subDuration = 0.120;
+  const midDuration = 0.050;
+  const topDuration = 0.006;
+  
+  const subFrames = Math.floor(subDuration * sampleRate);
+  const midFrames = Math.floor(midDuration * sampleRate);
+  const topFrames = Math.floor(topDuration * sampleRate);
+  const totalFrames = Math.max(subFrames, midFrames, topFrames);
+
+  const TAU = 2 * Math.PI;
+  let state = 987654 + startFrame; // noise generator state
+
+  for (let i = 0; i < totalFrames && startFrame + i < left.length; i++) {
+    const t = i / sampleRate;
+    let sample = 0;
+
+    // 1. SUB sine sweep (150 -> 45 Hz)
+    if (i < subFrames) {
+      const tRatio = i / subFrames;
+      const env = Math.cos(tRatio * Math.PI * 0.5); // Cosine decay
+      const phase = TAU * (150 * t + 0.5 * (45 - 150) * t * tRatio);
+      sample += Math.sin(phase) * 0.58 * env;
+    }
+
+    // 2. MID sine sweep (250 -> 75 Hz) + mid noise thud
+    if (i < midFrames) {
+      const tRatio = i / midFrames;
+      const env = Math.cos(tRatio * Math.PI * 0.5);
+      const phase = TAU * (250 * t + 0.5 * (75 - 250) * t * tRatio);
+      
+      state = Math.imul(1664525, state) + 1013904223;
+      const noise = (((state >>> 0) / 4294967296) * 2 - 1) * 0.10 * env;
+      
+      sample += (Math.sin(phase) * 0.28 + noise) * env;
+    }
+
+    // 3. TOP click (fast high transient)
+    if (i < topFrames) {
+      const env = 1 - (i / topFrames);
+      state = Math.imul(1664525, state) + 1013904223;
+      const noise = (((state >>> 0) / 4294967296) * 2 - 1) * 0.18 * env;
+      sample += noise;
+    }
+
+    const kickSample = sample * gain;
+    left[startFrame + i] += kickSample;
+    right[startFrame + i] += kickSample;
+  }
+}
+
 // sparse-intro: kick + snare backbone enter progressively; hats emerge in second half
 function drumSparseIntro(
   left: Float32Array, right: Float32Array, frame: number, sampleRate: number,
@@ -411,7 +562,7 @@ function drumSparseIntro(
 ): void {
   const progress = barIndex / Math.max(1, totalBars - 1);
   if (stepInBar === 0) {
-    addDecayingTone(left, right, frame, sampleRate, 55, (0.38 + progress * 0.14) * vel, 0.12);
+    addThreeLayerKick(left, right, frame, sampleRate, (0.38 + progress * 0.14) * vel);
   }
   // Snare enters at bar 2, builds in volume
   if (stepInBar === 8 && barIndex >= 2) {
@@ -433,7 +584,7 @@ function drumBuildup(
 
   // Kick every bar, getting harder
   if (stepInBar === 0) {
-    addDecayingTone(left, right, frame, sampleRate, 55, (0.42 + progress * 0.16) * vel, 0.12);
+    addThreeLayerKick(left, right, frame, sampleRate, (0.42 + progress * 0.16) * vel);
   }
 
   if (barsLeft <= 2) {
@@ -473,34 +624,37 @@ function drumDrop(
 ): void {
   const isFillBar = (barIndex + 1) % 4 === 0;
   const isLastBar = barIndex === totalBars - 1;
+  const isFill = isFillBar || isLastBar;
 
-  // Kick: beat 1 (step 0) — hard dubstep hit
-  if (stepInBar === 0) {
-    addDecayingTone(left, right, frame, sampleRate, 55, 0.62 * vel, 0.14);
+  // 16-step grid patterns (1 = trigger, 0 = rest)
+  const kickGrid = isFill
+    ? [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0] // fill bar: kick on 1, 3-and, 4-e
+    : [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0]; // normal bar: kick on 1, 3-and
+
+  const snareGrid = isFill
+    ? [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 1] // fill bar: snare on 3, 4-and, 4-a
+    : [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0]; // normal bar: snare on 3
+
+  const openHatGrid = [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0]; // open hat on 2-and, 4-and
+
+  const closedHatGrid = [0, 1, 1, 0, 1, 1, 0, 1, 0, 1, 1, 0, 1, 1, 0, 1]; // 1/16th groove driving pocket
+
+  if (kickGrid[stepInBar]) {
+    const isAccent = stepInBar === 0;
+    addThreeLayerKick(left, right, frame, sampleRate, (isAccent ? 0.58 : 0.28) * vel);
   }
-  // Ghost kicks in fill bars: "3-and" (step 10) and "4-e" (step 13)
-  if ((isFillBar || isLastBar) && (stepInBar === 10 || stepInBar === 13)) {
-    addDecayingTone(left, right, frame, sampleRate, 58, 0.24 * vel, 0.08);
+
+  if (snareGrid[stepInBar]) {
+    const isAccent = stepInBar === 8;
+    addNoiseBurst(left, right, frame, sampleRate, (isAccent ? 0.44 : 0.28) * vel, isAccent ? 0.10 : 0.075);
   }
-  // Snare: beat 3 (step 8) — the half-time backbone, HARD
-  if (stepInBar === 8) {
-    addNoiseBurst(left, right, frame, sampleRate, 0.44 * vel, 0.10);
-  }
-  // Snare fill at bar boundary: "4-and" and "4-a" (steps 14, 15)
-  if ((isFillBar || isLastBar) && (stepInBar === 14 || stepInBar === 15)) {
-    addNoiseBurst(left, right, frame, sampleRate, 0.28 * vel, 0.075);
-  }
-  // Open hat: "2-and" (step 6) — classic dubstep offbeat open hat (longer decay)
-  if (stepInBar === 6) {
+
+  if (openHatGrid[stepInBar]) {
     addNoiseBurst(left, right, frame, sampleRate, 0.16 * vel, 0.048);
   }
-  // Closed hats: offbeats of beats 1 and 3 (steps 2, 10)
-  if (stepInBar === 2 || stepInBar === 10) {
+
+  if (closedHatGrid[stepInBar]) {
     addNoiseBurst(left, right, frame, sampleRate, 0.08 * vel, 0.022);
-  }
-  // 1/16th groove hats on the "e"s (steps 1, 5, 9, 13) — drives the pocket
-  if (stepInBar === 1 || stepInBar === 5 || stepInBar === 9 || stepInBar === 13) {
-    addNoiseBurst(left, right, frame, sampleRate, 0.038 * vel, 0.016);
   }
 }
 
@@ -510,7 +664,7 @@ function drumBreakdown(
   barIndex: number, totalBars: number, stepInBar: number, vel: number
 ): void {
   if (stepInBar === 0 && barIndex % 2 === 0) {
-    addDecayingTone(left, right, frame, sampleRate, 55, 0.30 * vel, 0.10);
+    addThreeLayerKick(left, right, frame, sampleRate, 0.30 * vel);
   }
   if (stepInBar === 8 && barIndex >= totalBars - 2) {
     addNoiseBurst(left, right, frame, sampleRate, 0.18 * vel, 0.07);
@@ -524,7 +678,7 @@ function drumOutro(
 ): void {
   const fadeGain = Math.max(0, 1 - (barIndex / Math.max(1, totalBars - 1)) * 0.90);
   if (stepInBar === 0) {
-    addDecayingTone(left, right, frame, sampleRate, 55, 0.50 * vel * fadeGain, 0.12);
+    addThreeLayerKick(left, right, frame, sampleRate, 0.50 * vel * fadeGain);
   }
   if (stepInBar === 8) {
     addNoiseBurst(left, right, frame, sampleRate, 0.34 * vel * fadeGain, 0.09);
@@ -538,11 +692,175 @@ function drumOutro(
 function renderBassClip(left: Float32Array, right: Float32Array, sampleRate: number, bpm: number, clip: RemixClip): void {
   const beatSeconds = 60 / bpm;
   const startFrame = Math.floor(clip.startBeat * beatSeconds * sampleRate);
-  const frequency = Number(clip.payload.frequencyHz ?? 55);
-  for (let beat = 0; beat < clip.durationBeats; beat += 2) {
-    const frame = startFrame + Math.floor(beat * beatSeconds * sampleRate);
-    addDecayingTone(left, right, frame, sampleRate, frequency, 0.38, beatSeconds * 1.5);
-    addDecayingTone(left, right, frame, sampleRate, frequency * 2.01, 0.12, beatSeconds * 0.8);
+  const notes: BassNotePayload[] = Array.isArray(clip.payload.notes) ? (clip.payload.notes as BassNotePayload[]) : [];
+  const swingRatio = 0.04; // align to standard default swing ratio
+  
+  for (const note of notes) {
+    const stepInBar = Math.round((note.startBeat % 4) / 0.25) % 16;
+    const swingFrames = stepInBar % 2 === 1 ? Math.floor(swingRatio * beatSeconds * sampleRate) : 0;
+    const noteFrame = startFrame + Math.floor(note.startBeat * beatSeconds * sampleRate) + swingFrames;
+    if (noteFrame >= left.length) continue;
+    renderBassNote(left, right, noteFrame, sampleRate, bpm, note);
+  }
+}
+
+// Generates the BassNotePayload array for one bar of the 4-bar repeating phrase.
+// Drop 1: root/5th/b7 riff with 1/4–1/8–1/8. wobble rates.
+// Drop 2: 4th/b7 riff with 1/8T–1/16 wobble — mandatory harmonic and rhythmic variation.
+function buildBassBar(scale: number[], phraseBar: number, phraseIndex: number, isSecondDrop: boolean): BassNotePayload[] {
+  const root = scale[0] ?? 45; // Default to A1/A2 root if scale is empty
+  
+  // Key-aware relative scale degrees (chromatic offsets relative to root tonic)
+  const b2 = root + 1;
+  const minor3rd = root + 3;
+  const fourth = root + 5;
+  const b5 = root + 6;
+  const fifth = root + 7;
+  const b7 = root + 10;
+
+  const n = (startBeat: number, durationBeats: number, midi: number, wob: SyncDivision, vel: number, ghost: boolean): BassNotePayload => {
+    const freq = midiToFrequency(midi);
+    return { 
+      startBeat, 
+      durationBeats, 
+      midiNote: midi, 
+      frequencyHz: Number(freq.toFixed(2)), 
+      subFrequencyHz: Number(resolveDubstepSubFrequency(freq).toFixed(2)), 
+      wobbleDivision: wob, 
+      velocity: vel, 
+      isGhost: ghost 
+    };
+  };
+
+  if (!isSecondDrop) {
+    // DROP 1 — 1/4 anchor / 1/8 stab / 1/8. move / 1/4 fill with dark key-aware intervals (b2, b5, b7)
+    if (phraseBar === 0) {
+      // Anchor: root sits for 2 beats (in key), ghost on b2 (step 8)
+      return [
+        n(0.0, 2.0, root, '1/4', 0.95, false),
+        n(2.0, 0.5, b2, '1/4', 0.45, true),
+      ];
+    }
+    if (phraseBar === 1) {
+      // Stab: root first (in key) + off-beat tritone (b5) or minor 7th (b7) stabs
+      const alt = phraseIndex % 2 === 0 ? b5 : b7;
+      return [
+        n(0.0,  0.5,  root, '1/8', 0.90, false),
+        n(0.5,  0.25, alt,  '1/8', 0.48, true),
+        n(2.0,  0.75, root, '1/8', 0.85, false),
+        n(3.0,  0.25, alt,  '1/8', 0.45, true),
+      ];
+    }
+    if (phraseBar === 2) {
+      // Melodic move: first note is diatonic (fifth/fourth), second note is chromatic b5
+      const move = phraseIndex % 2 === 0 ? fifth : fourth;
+      return [
+        n(0.0, 1.5, move, '1/8.', 0.88, false),
+        n(1.5, 0.5, b5, '1/8.', 0.52, true),
+        n(2.5, 0.5, root, '1/8.', 0.55, true),
+      ];
+    }
+    // phraseBar === 3: Groove fill resolving to root (in key)
+    return [
+      n(0.0, 0.5,  root, '1/4', 0.85, false),
+      n(0.5, 0.25, b2, '1/4', 0.40, true),
+      n(2.0, 0.5,  root, '1/4', 0.80, false),
+      n(3.5, 0.25, minor3rd, '1/4', 0.38, true),
+    ];
+  } else {
+    // DROP 2 — triplet/fast wobble, Locrian b2/b5 moves, syncopation
+    if (phraseBar === 0) {
+      // Long hold on fourth or fifth (diatonic, in key) with triplet LFO
+      const hold = phraseIndex % 2 === 0 ? fourth : fifth;
+      return [
+        n(0.0, 3.0,  hold, '1/8T', 0.92, false),
+        n(3.5, 0.25, root, '1/8T', 0.38, true),
+      ];
+    }
+    if (phraseBar === 1) {
+      // Stab burst: first note is root (in key), second is b2
+      return [
+        n(0.0,  0.75, root, '1/16', 0.90, false),
+        n(1.0,  0.5,  b2, '1/16', 0.50, true),
+        n(2.0,  0.75, root, '1/16', 0.88, false),
+        n(2.75, 0.25, b5, '1/16', 0.36, true),
+      ];
+    }
+    if (phraseBar === 2) {
+      // Dark move: first note is diatonic (b7 or fourth), second is tritone b5
+      const dark = phraseIndex % 2 === 0 ? b7 : fourth;
+      return [
+        n(0.0, 1.0, dark, '1/8T', 0.85, false),
+        n(1.5, 0.5, b5, '1/8T', 0.52, true),
+        n(3.0, 0.5, root, '1/8T', 0.55, true),
+      ];
+    }
+    // phraseBar === 3: Sparse resolve to root (in key)
+    return [
+      n(0.0, 2.0, root, '1/8', 0.88, false),
+    ];
+  }
+}
+
+// Renders one bass note: sub layer (pure sine, mono, long) + mid layer (resonant filter sweep + drive).
+function renderBassNote(left: Float32Array, right: Float32Array, startFrame: number, sampleRate: number, bpm: number, note: BassNotePayload): void {
+  const frames = Math.floor(note.durationBeats * (60 / bpm) * sampleRate);
+  if (frames <= 0) return;
+
+  const attackFrames = Math.min(Math.floor(0.008 * sampleRate), Math.floor(frames * 0.15));
+  const releaseFrames = Math.min(Math.floor(0.10 * sampleRate), Math.floor(frames * 0.40));
+  const lfoHz = lfoSyncHz(bpm, note.wobbleDivision);
+
+  const subGain = note.isGhost ? 0 : 0.36 * note.velocity;
+  const midGain = note.isGhost ? 0.14 * note.velocity : 0.22 * note.velocity;
+  const fSub = note.subFrequencyHz;
+  const fMid = note.frequencyHz;
+  const TAU = 2 * Math.PI;
+
+  for (let i = 0; i < frames && startFrame + i < left.length; i++) {
+    const t = i / sampleRate;
+    const envAtk = i < attackFrames ? i / Math.max(1, attackFrames) : 1.0;
+    const envRel = i > frames - releaseFrames ? (frames - i) / Math.max(1, releaseFrames) : 1.0;
+    const env = Math.min(envAtk, envRel);
+
+    // LFO wobble controls both filter cutoff opening and amplitude
+    const lfo = 0.48 + 0.52 * Math.sin(TAU * lfoHz * t);
+
+    // Sub: pure sine, mono — duck slightly when mid filter opens to prevent low-end smear
+    const subDuck = 1 - 0.28 * lfo;
+    const subSample = note.isGhost ? 0 : Math.sin(TAU * fSub * t) * subGain * env * subDuck;
+
+    // Mid: simulated resonant lowpass filter sweep on harmonic series (sawtooth approx)
+    const cutoffHz = fMid * (1.5 + 5.0 * lfo); // sweep cutoff based on LFO
+    let mid = 0;
+    const harmonics = [
+      { h: 1, amp: 0.55 },
+      { h: 2, amp: 0.27 },
+      { h: 3, amp: 0.14 },
+      { h: 4, amp: 0.07 },
+      { h: 5, amp: 0.04 }
+    ];
+
+    for (const { h, amp } of harmonics) {
+      const f_h = fMid * h;
+      let filterAtt = 1.0;
+      if (f_h > cutoffHz) {
+        filterAtt = Math.pow(cutoffHz / f_h, 2.0); // 12 dB/octave attenuation
+      }
+      
+      // Simulate resonance peak near cutoff
+      const distanceToCutoff = Math.abs(f_h - cutoffHz);
+      const qBoost = 0.35 * Math.exp(-Math.pow(distanceToCutoff / (cutoffHz * 0.18), 2.0));
+      
+      mid += Math.sin(TAU * f_h * t) * amp * (filterAtt + qBoost);
+    }
+
+    // Saturated waveshaper distortion (Da Wubs style)
+    let midSample = mid * midGain * env;
+    midSample = Math.tanh(midSample * 1.8) * 0.85;
+
+    left[startFrame + i] += subSample + midSample;
+    right[startFrame + i] += subSample + midSample * 0.88; // slight mid stereo width
   }
 }
 

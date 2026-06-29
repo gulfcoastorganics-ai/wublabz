@@ -1,4 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react';
+import * as Tone from 'tone';
 import { createGrowlVoice } from '../lib/audio/GrowlVoiceGraph';
 import { fromChannelBuffer, getProducerAnalyser, getProducerAudioContext } from '../lib/audio/ProducerAudioEngine';
 import { renderBufferToWav } from '../lib/export/AudioRenderExport';
@@ -38,6 +39,7 @@ export function RemixToDubstepView() {
   const [exporting, setExporting] = useState('');
   const [playing, setPlaying] = useState(false);
   const activeSources = useRef<any[]>([]);
+  const activeVoices = useRef<any[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const client = useMemo(() => {
     const offline = (import.meta as any).env?.VITE_FLIP_PREP_OFFLINE === 'true';
@@ -112,39 +114,118 @@ export function RemixToDubstepView() {
     setSuccess('Applied key override.');
   }
 
-  function play() {
+  async function play() {
     if (!arrangement) return;
     stop();
+
+    const T = Tone as any;
     const context = getProducerAudioContext();
     engine.setBpm(arrangement.targetBpm);
-    const now = context.currentTime + 0.05;
-    const rendered = renderArrangementGuideMaster(arrangement, 44100);
-    const source = context.createBufferSource();
-    source.buffer = fromChannelBuffer(context, rendered);
-    source.connect(getProducerAnalyser());
-    source.start(now);
-    source.onended = () => setPlaying(false);
-    activeSources.current.push(source);
-    setPlaying(true);
 
-    const bassTrack = arrangement.tracks.find((track) => track.type === 'bass' && !track.muted);
-    for (const clip of bassTrack?.clips ?? []) {
-      const midi = Number(clip.payload.midi ?? 45);
-      const start = now + (clip.startBeat * 60) / arrangement.targetBpm;
-      const voice = createGrowlVoice(context, arrangement.bassPreset, midiToFrequency(midi), getProducerAnalyser(), engine.getBpm());
-      voice.start(start);
-      voice.stop(start + 0.85);
+    try {
+      // Ensure Tone.js audio context is started
+      await T.start();
+      T.Transport.stop();
+      T.Transport.cancel();
+      T.Transport.bpm.value = arrangement.targetBpm;
+
+      // Render guide master WITHOUT bass track to avoid double-triggering bass
+      const arrangementWithoutBass = {
+        ...arrangement,
+        tracks: arrangement.tracks.filter((t) => t.type !== 'bass')
+      };
+      const rendered = renderArrangementGuideMaster(arrangementWithoutBass, 44100);
+      const buffer = fromChannelBuffer(context, rendered);
+
+      // Play guide master via Tone.Player synced to Tone.Transport
+      const player = new T.Player(buffer);
+      player.connect(getProducerAnalyser() as any);
+      player.sync().start(0);
+      activeSources.current.push(player);
+
+      // Schedule individual bass notes on Tone.Transport using GrowlVoiceGraph
+      const bassTrack = arrangement.tracks.find((track) => track.type === 'bass' && !track.muted);
+      if (bassTrack) {
+        for (const clip of bassTrack.clips) {
+          const notes = Array.isArray(clip.payload.notes) ? (clip.payload.notes as any[]) : [];
+          const preset = clip.payload.preset as any ?? arrangement.bassPreset;
+          for (const note of notes) {
+            const startBeat = clip.startBeat + note.startBeat;
+            const time = startBeat * (60 / arrangement.targetBpm);
+            const duration = note.durationBeats * (60 / arrangement.targetBpm);
+
+            T.Transport.schedule((t: any) => {
+              const voice = createGrowlVoice(
+                context,
+                preset,
+                note.frequencyHz,
+                getProducerAnalyser(),
+                arrangement.targetBpm
+              );
+              activeVoices.current.push(voice);
+              voice.start(t);
+              voice.stop(t + duration);
+
+              // Clean up voice reference when it finishes
+              setTimeout(() => {
+                activeVoices.current = activeVoices.current.filter((v) => v !== voice);
+              }, (duration + 1.5) * 1000);
+            }, time);
+          }
+        }
+      }
+
+      T.Transport.start();
+      setPlaying(true);
+
+      // Set playing state to false when song duration completes
+      const totalDuration = arrangementDurationSeconds(arrangement);
+      const completionTimeout = setTimeout(() => {
+        setPlaying(false);
+      }, (totalDuration + 0.5) * 1000);
+      activeSources.current.push({
+        stop: () => clearTimeout(completionTimeout),
+        dispose: () => undefined
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to start playback');
     }
   }
 
   function stop() {
+    const T = Tone as any;
+    // Cancel all scheduled events on Tone.js Transport
+    T.Transport.stop();
+    T.Transport.cancel();
+
+    // Clean up active real-time voices
+    const currentContext = getProducerAudioContext();
+    for (const voice of activeVoices.current) {
+      try {
+        voice.stop(currentContext.currentTime, 0.05);
+      } catch {
+        // Already stopped
+      }
+    }
+    activeVoices.current = [];
+
+    // Stop and dispose active sources
     for (const source of activeSources.current) {
       try {
         source.stop();
       } catch {
-        // Already stopped.
+        // Already stopped
       }
-      source.disconnect?.();
+      try {
+        source.dispose?.();
+      } catch {
+        // Already disposed
+      }
+      try {
+        source.disconnect?.();
+      } catch {
+        // Already disconnected
+      }
     }
     activeSources.current = [];
     setPlaying(false);
