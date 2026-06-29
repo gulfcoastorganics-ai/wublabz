@@ -269,14 +269,14 @@ export function renderArrangementGuideStem(arrangement: RemixArrangement, trackT
 export function renderArrangementGuideMaster(arrangement: RemixArrangement, sampleRate = 44100): ChannelBuffer {
   const pairs = arrangement.tracks.map((track) => ({ stem: renderArrangementGuideStem(arrangement, track.type, sampleRate), type: track.type }));
   const mixed = mixArrangementStemsWithContext(pairs.map((p) => p.stem), pairs.map((p) => p.type), arrangement);
-  applySuckOut(mixed.channels[0], mixed.channels[1], sampleRate, arrangement.targetBpm, arrangement.sections);
+  applyEnergyDeltaSuckOutAndImpacts(mixed.channels[0], mixed.channels[1], sampleRate, arrangement.targetBpm, arrangement.sections, arrangement.detectedKey);
   return mixed;
 }
 
 export function renderArrangementMasterWithAudio(arrangement: RemixArrangement, assets: RemixAudioAssets, sampleRate = 44100): ChannelBuffer {
   const pairs = arrangement.tracks.map((track) => ({ stem: renderArrangementStemWithAudio(arrangement, track.type, assets, sampleRate), type: track.type }));
   const mixed = mixArrangementStemsWithContext(pairs.map((p) => p.stem), pairs.map((p) => p.type), arrangement);
-  applySuckOut(mixed.channels[0], mixed.channels[1], sampleRate, arrangement.targetBpm, arrangement.sections);
+  applyEnergyDeltaSuckOutAndImpacts(mixed.channels[0], mixed.channels[1], sampleRate, arrangement.targetBpm, arrangement.sections, arrangement.detectedKey);
   return mixed;
 }
 
@@ -356,22 +356,135 @@ function mixArrangementStemsWithContext(stems: ChannelBuffer[], trackTypes: Remi
   return { sampleRate, channels: [left, right] };
 }
 
-// Suck-out: silence the last 0.5 beats before each drop for that iconic vacuum-then-explosion moment.
-function applySuckOut(left: Float32Array, right: Float32Array, sampleRate: number, bpm: number, sections: RemixSection[]): void {
+function getRootMidi(key: string): number {
+  let clean = key.trim().split(' ')[0] || 'A';
+  if (clean.endsWith('b') && clean.length > 1) {
+    const flats: Record<string, string> = {
+      'Db': 'C#', 'Eb': 'D#', 'Gb': 'F#', 'Ab': 'G#', 'Bb': 'A#'
+    };
+    clean = flats[clean] ?? clean;
+  }
+  const baseMidiMap: Record<string, number> = {
+    'C': 24, 'C#': 25, 'D': 26, 'D#': 27, 'E': 28, 'F': 29,
+    'F#': 30, 'G': 31, 'G#': 32, 'A': 33, 'A#': 34, 'B': 35
+  };
+  return baseMidiMap[clean] ?? 33; // Default to A1 (33)
+}
+
+// Energy Delta: thins last 2 bars of buildup; Suck-Out: silences last 2 beats; Stacked Impact: Kick + 808 + Boom + Cymbal Swell.
+function applyEnergyDeltaSuckOutAndImpacts(
+  left: Float32Array,
+  right: Float32Array,
+  sampleRate: number,
+  bpm: number,
+  sections: RemixSection[],
+  detectedKey: string
+): void {
   const beatSeconds = 60 / bpm;
-  const suckBeats = 0.5;
 
   for (const section of sections.filter((s) => s.kind === 'drop' || s.kind === 'second-drop')) {
-    const dropBeat = section.startBar * 4;
-    const startFrame = Math.max(0, Math.floor((dropBeat - suckBeats) * beatSeconds * sampleRate));
-    const endFrame   = Math.floor(dropBeat * beatSeconds * sampleRate);
-    const span = endFrame - startFrame;
-    for (let i = startFrame; i < endFrame && i < left.length; i++) {
-      const t = (i - startFrame) / Math.max(1, span); // 0 → 1
-      // Fast dip to silence: fade out in first 65%, hold near zero for last 35%
-      const gain = t < 0.65 ? Math.max(0, 1 - t / 0.65) : 0;
-      left[i]  *= gain;
-      right[i] *= gain;
+    const downbeatFrame = Math.floor(section.startBar * 4 * beatSeconds * sampleRate);
+
+    // 1. Find buildup section that precedes this drop
+    const precedingSection = sections.find((s) => s.startBar + s.bars === section.startBar);
+    if (precedingSection) {
+      // 1.1 Energy Delta: Pull final 2 bars (8 beats) of buildup way back (attenuate from 100% down to 25%)
+      const energyDeltaStartFrame = Math.floor((section.startBar * 4 - 8) * beatSeconds * sampleRate);
+      const energyDeltaEndFrame = Math.floor((section.startBar * 4 - 2) * beatSeconds * sampleRate);
+      const energySpan = energyDeltaEndFrame - energyDeltaStartFrame;
+      for (let i = energyDeltaStartFrame; i < energyDeltaEndFrame && i < left.length; i++) {
+        if (i < 0) continue;
+        const t = (i - energyDeltaStartFrame) / Math.max(1, energySpan);
+        const gain = 1.0 - t * 0.75; // smoothly ramp down to 25% volume
+        left[i] *= gain;
+        right[i] *= gain;
+      }
+
+      // 1.2 Suck-Out: Fade to absolute silence over the last 2 beats of the buildup
+      const suckOutStartFrame = Math.floor((section.startBar * 4 - 2) * beatSeconds * sampleRate);
+      const suckOutEndFrame = downbeatFrame;
+      const suckSpan = suckOutEndFrame - suckOutStartFrame;
+      for (let i = suckOutStartFrame; i < suckOutEndFrame && i < left.length; i++) {
+        if (i < 0) continue;
+        const t = (i - suckOutStartFrame) / Math.max(1, suckSpan);
+        const gain = Math.max(0, 1.0 - t / 0.80); // absolute silence in the final 20% of the suck-out zone
+        left[i] *= gain;
+        right[i] *= gain;
+      }
+
+      // 1.3 Tension Build: Overlay reverse cymbal swell rising into the downbeat (last 2 beats of buildup)
+      const swellDuration = 2.0 * beatSeconds;
+      const swellFrames = Math.floor(swellDuration * sampleRate);
+      const swellStartFrame = downbeatFrame - swellFrames;
+      let prevNoise = 0;
+      let noiseState = 54321 + downbeatFrame;
+      for (let i = 0; i < swellFrames; i++) {
+        const frame = swellStartFrame + i;
+        if (frame < 0 || frame >= left.length) continue;
+        const t = i / swellFrames;
+        const env = Math.pow(t, 4.5); // steep exponential rise
+
+        noiseState = Math.imul(1664525, noiseState) + 1013904223;
+        const noiseVal = ((noiseState >>> 0) / 4294967296) * 2 - 1;
+
+        // highpass filter approximation (difference between adjacent noise samples)
+        const hpVal = noiseVal - prevNoise;
+        prevNoise = noiseVal;
+
+        const swellSample = hpVal * env * 0.18;
+        left[frame] += swellSample;
+        right[frame] += swellSample;
+      }
+    }
+
+    // 2. Stacked Drop Impact (exactly at downbeatFrame)
+    if (downbeatFrame >= left.length) continue;
+
+    // 2.1 The Three-Layer Kick (impact transient)
+    addThreeLayerKick(left, right, downbeatFrame, sampleRate, 0.88);
+
+    // 2.2 Deep 808 Sub Bass Hit on key tonic root (decaying sine sweep)
+    const rootMidi = getRootMidi(detectedKey);
+    const fSub = midiToFrequency(rootMidi);
+    const subDuration = 1.8 * beatSeconds;
+    const subFrames = Math.floor(subDuration * sampleRate);
+    let subPhase = 0;
+    for (let i = 0; i < subFrames; i++) {
+      const frame = downbeatFrame + i;
+      if (frame >= left.length) continue;
+      const t = i / sampleRate;
+      const env = Math.exp(-2.2 * (i / subFrames)); // exponential decay
+      const pitchSweep = 1.0 + 0.4 * Math.exp(-95 * t); // fast pitch sweep (impact slam)
+      subPhase += (2 * Math.PI * (fSub * pitchSweep)) / sampleRate;
+      const subSample = Math.sin(subPhase) * env * 0.52; // massive low-end weight
+      left[frame] += subSample;
+      right[frame] += subSample;
+    }
+
+    // 2.3 Slam Low Impact Boom (swept lowpass filtered noise)
+    const boomDuration = 2.4 * beatSeconds;
+    const boomFrames = Math.floor(boomDuration * sampleRate);
+    let filterState = 0;
+    let boomNoiseState = 876543 + downbeatFrame;
+    for (let i = 0; i < boomFrames; i++) {
+      const frame = downbeatFrame + i;
+      if (frame >= left.length) continue;
+      const t = i / boomFrames;
+      const env = Math.pow(1.0 - t, 2.5); // smooth decay
+
+      boomNoiseState = Math.imul(1664525, boomNoiseState) + 1013904223;
+      const noiseVal = ((boomNoiseState >>> 0) / 4294967296) * 2 - 1;
+
+      // sweep lowpass filter cutoff from 350 Hz down to 20 Hz
+      const cutoff = 350 * Math.pow(1.0 - t, 3.0) + 20;
+      const rc = 1.0 / (2 * Math.PI * cutoff);
+      const dt = 1.0 / sampleRate;
+      const alpha = dt / (rc + dt);
+      filterState = filterState + alpha * (noiseVal - filterState);
+
+      const boomSample = filterState * env * 0.35;
+      left[frame] += boomSample;
+      right[frame] += boomSample;
     }
   }
 }
