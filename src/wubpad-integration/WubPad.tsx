@@ -57,20 +57,20 @@ type MidiStatus = 'unavailable' | 'requesting' | 'ready' | 'blocked';
 
 // --- Styles ---
 const COLORS = {
-  bg: '#070912',
-  surface: 'rgba(16, 22, 34, 0.72)',
-  primary: '#6ee7ff',
-  secondary: '#ff6fcf',
-  danger: '#ff6b7a',
-  text: '#f5f8ff',
-  textMuted: '#a8b3c7',
-  border: 'rgba(210, 236, 255, 0.16)',
-  meter: '#7cffc9'
+  bg: '#0a0608',
+  surface: 'rgba(24, 10, 13, 0.78)',
+  primary: '#ff2b3d',
+  secondary: '#ff7a86',
+  danger: '#ff2b3d',
+  text: '#fff4f5',
+  textMuted: '#c6aeb4',
+  border: 'rgba(255, 214, 219, 0.14)',
+  meter: '#ff2b3d'
 };
 
 const styles: Record<string, React.CSSProperties> = {
   container: {
-    background: 'linear-gradient(145deg, rgba(16, 22, 34, 0.76), rgba(9, 14, 23, 0.58))',
+    background: 'linear-gradient(145deg, rgba(34, 13, 17, 0.82), rgba(10, 6, 8, 0.68))',
     color: COLORS.text,
     minHeight: 'calc(100vh - 230px)',
     display: 'flex',
@@ -84,8 +84,9 @@ const styles: Record<string, React.CSSProperties> = {
     borderTop: '1px solid rgba(255, 255, 255, 0.24)',
     borderRadius: '18px',
     overflow: 'hidden',
-    boxShadow: '0 22px 60px rgba(0, 0, 0, 0.36), inset 0 1px 0 rgba(255, 255, 255, 0.14)',
-    backdropFilter: 'blur(18px) saturate(135%)'
+    boxShadow: '0 22px 54px rgba(0, 0, 0, 0.48), inset 0 1px 0 rgba(255, 255, 255, 0.13)',
+    contain: 'layout paint style',
+    isolation: 'isolate'
   },
   header: {
     padding: '1rem 1.05rem',
@@ -131,10 +132,10 @@ const styles: Record<string, React.CSSProperties> = {
     boxShadow: '0 10px 22px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.12)',
     transition: 'background 140ms ease, border-color 140ms ease, transform 90ms ease, opacity 120ms ease, box-shadow 140ms ease'
   },
-  primaryButton: { border: `1px solid rgba(110, 231, 255, 0.62)`, color: '#dffcff', background: 'linear-gradient(135deg, rgba(110, 231, 255, 0.23), rgba(124, 255, 201, 0.13))' },
-  dangerButton: { background: 'linear-gradient(135deg, rgba(255, 107, 122, 0.82), rgba(255, 111, 207, 0.32))', border: `1px solid rgba(255, 107, 122, 0.72)`, color: '#fff' },
-  activeButton: { background: 'linear-gradient(135deg, rgba(110, 231, 255, 0.9), rgba(124, 255, 201, 0.72))', color: '#051018' },
-  buttonHover: { background: 'linear-gradient(145deg, rgba(255, 255, 255, 0.14), rgba(110, 231, 255, 0.08))', border: '1px solid rgba(210, 236, 255, 0.34)' },
+  primaryButton: { border: `1px solid rgba(255, 43, 61, 0.68)`, color: '#fff4f5', background: 'linear-gradient(135deg, rgba(224, 16, 48, 0.34), rgba(255, 43, 61, 0.16))', boxShadow: '0 0 0 1px rgba(255, 43, 61, 0.12), 0 0 20px rgba(255, 43, 61, 0.2), inset 0 1px 0 rgba(255,255,255,0.14)' },
+  dangerButton: { background: 'linear-gradient(135deg, rgba(224, 16, 48, 0.82), rgba(255, 43, 61, 0.36))', border: `1px solid rgba(255, 43, 61, 0.72)`, color: '#fff' },
+  activeButton: { background: 'linear-gradient(135deg, rgba(224, 16, 48, 0.95), rgba(255, 43, 61, 0.76))', color: '#fff4f5' },
+  buttonHover: { background: 'linear-gradient(145deg, rgba(255, 255, 255, 0.13), rgba(255, 43, 61, 0.1))', border: '1px solid rgba(255, 214, 219, 0.24)' },
   buttonActive: { transform: 'translateY(1px) scale(0.99)', background: 'rgba(255, 255, 255, 0.065)' },
   buttonDisabled: { opacity: 0.45, cursor: 'not-allowed', transform: 'none' },
   slider: { width: '100%', accentColor: COLORS.primary, margin: '0.5rem 0' },
@@ -159,9 +160,9 @@ const styles: Record<string, React.CSSProperties> = {
     background: 'rgba(255, 255, 255, 0.055)'
   },
   meter: { height: '5px', backgroundColor: 'rgba(255, 255, 255, 0.08)', borderRadius: '999px', overflow: 'hidden', marginTop: '4px', boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.08)' },
-  meterFill: { height: '100%', background: 'linear-gradient(90deg, #6ee7ff, #7cffc9)', transition: 'width 0.05s ease-out' },
+  meterFill: { height: '100%', background: 'linear-gradient(90deg, #e01030, #ff2b3d)', transition: 'width 0.05s ease-out' },
   input: {
-    background: 'rgba(3, 7, 13, 0.68)',
+    background: 'rgba(7, 4, 5, 0.72)',
     color: COLORS.text,
     border: `1px solid ${COLORS.border}`,
     padding: '0.5rem',
@@ -610,12 +611,12 @@ export const WubPad: React.FC = () => {
   // --- Rendering Helpers ---
   const getStatusColor = () => {
     switch (status) {
-      case 'connected': return '#7cffc9';
+      case 'connected': return '#ff2b3d';
       case 'connecting':
       case 'reconnecting': return '#ffd166';
-      case 'error': return '#ff6b7a';
-      case 'tripped': return '#ff6b7a';
-      default: return '#657187';
+      case 'error': return '#ff2b3d';
+      case 'tripped': return '#ff2b3d';
+      default: return '#7f6d72';
     }
   };
 

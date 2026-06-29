@@ -13,7 +13,7 @@ import { decodeWavHeader, encodeWav } from '../src/lib/export/wav.js';
 import { applyMasterGlueCompression, DEFAULT_LOW_MONO_HZ, DEFAULT_MASTER_CEILING_DB, DEFAULT_MASTER_GLUE_RATIO, DEFAULT_MASTER_GLUE_THRESHOLD_DB, DEFAULT_MASTER_HEADROOM_DB, DEFAULT_MASTER_MAKEUP_DB, getPeakAmplitude, monoLowBand, normalizeChannelBuffer, normalizeTruePeakSafe, renderMasterChannelBuffer } from '../src/lib/audio/outputQuality.js';
 import { applyEqualPowerFade, createSlicePlan, renderMangledBuffer, softLimitSample, type ChannelBuffer } from '../src/lib/producer-tools/mangler.js';
 import { clampFlipPrepClipSelection, estimateFlipPrepTotalSeconds, trimChannelBuffer } from '../src/lib/producer-tools/flipPrepClip.js';
-import { DEFAULT_GROWL_PRESET, STARTER_GROWL_PRESETS, driveMakeupGain, lfoSyncHz, normalizeGrowlPreset, resolveAdsrStageTimes, resolveDubstepSubFrequency, SPLIT_CROSSOVER_HZ } from '../src/lib/producer-tools/synth.js';
+import { DEFAULT_GROWL_PRESET, MIN_CLICK_FREE_ATTACK_SECONDS, MIN_CLICK_FREE_FILTER_ATTACK_SECONDS, MIN_LFO_DEPTH_ATTACK_SECONDS, STARTER_GROWL_PRESETS, driveMakeupGain, lfoSyncHz, normalizeGrowlPreset, resolveAdsrStageTimes, resolveDubstepSubFrequency, resolveFilterAttackFloorSeconds, SPLIT_CROSSOVER_HZ } from '../src/lib/producer-tools/synth.js';
 
 function sourceBuffer(length = 32): ChannelBuffer {
   const channel = new Float32Array(length);
@@ -241,6 +241,18 @@ describe('producer tool DSP logic', () => {
     expect(times.attackEnd).toBeCloseTo(1.05);
     expect(times.decayEnd).toBeCloseTo(1.25);
     expect(times.releaseEnd).toBeCloseTo(2.3);
+  });
+
+  it('enforces a click-free attack floor when requested', () => {
+    const times = resolveAdsrStageTimes(1, 0, 0.2, 0.3, 2, MIN_CLICK_FREE_ATTACK_SECONDS);
+    expect(times.attackEnd).toBeCloseTo(1 + MIN_CLICK_FREE_ATTACK_SECONDS);
+    expect(times.decayEnd).toBeCloseTo(1 + MIN_CLICK_FREE_ATTACK_SECONDS + 0.2);
+  });
+
+  it('slows resonant filter attack enough to avoid sweep crackle', () => {
+    expect(resolveFilterAttackFloorSeconds(4)).toBe(MIN_CLICK_FREE_FILTER_ATTACK_SECONDS);
+    expect(resolveFilterAttackFloorSeconds(14)).toBeGreaterThan(MIN_CLICK_FREE_FILTER_ATTACK_SECONDS);
+    expect(MIN_LFO_DEPTH_ATTACK_SECONDS).toBeGreaterThan(MIN_CLICK_FREE_ATTACK_SECONDS);
   });
 });
 

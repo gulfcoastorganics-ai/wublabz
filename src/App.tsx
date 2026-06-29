@@ -122,7 +122,7 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
 const styles: Record<string, React.CSSProperties> = {
   shell: {
     minHeight: '100vh',
-    color: '#f5f8ff',
+    color: '#fff4f5',
     fontFamily: 'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
     padding: '1rem',
     display: 'grid',
@@ -130,11 +130,11 @@ const styles: Record<string, React.CSSProperties> = {
   },
   header: {
     padding: '1.15rem 1.25rem',
-    border: '1px solid rgba(210, 236, 255, 0.16)',
+    border: '1px solid rgba(255, 214, 219, 0.14)',
     borderTop: '1px solid rgba(255, 255, 255, 0.24)',
     borderRadius: '18px',
-    background: 'linear-gradient(135deg, rgba(17, 25, 40, 0.78), rgba(12, 18, 30, 0.6))',
-    boxShadow: '0 22px 60px rgba(0, 0, 0, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.14)'
+    background: 'linear-gradient(135deg, rgba(34, 13, 17, 0.86), rgba(13, 8, 9, 0.72))',
+    boxShadow: '0 22px 54px rgba(0, 0, 0, 0.48), inset 0 1px 0 rgba(255, 255, 255, 0.13)'
   },
   title: {
     margin: 0,
@@ -145,26 +145,26 @@ const styles: Record<string, React.CSSProperties> = {
   },
   subtitle: {
     margin: '0.25rem 0 0',
-    color: '#a8b3c7',
+    color: '#c6aeb4',
     fontSize: '0.88rem'
   },
   tabs: {
     display: 'flex',
     gap: '0.55rem',
     padding: '0.55rem',
-    border: '1px solid rgba(210, 236, 255, 0.13)',
+    border: '1px solid rgba(255, 214, 219, 0.12)',
     borderTop: '1px solid rgba(255, 255, 255, 0.2)',
     borderRadius: '16px',
-    background: 'rgba(10, 15, 25, 0.68)',
+    background: 'linear-gradient(145deg, rgba(27, 10, 13, 0.8), rgba(10, 6, 8, 0.7))',
     boxShadow: '0 16px 42px rgba(0, 0, 0, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
     overflowX: 'auto',
-    backdropFilter: 'blur(14px) saturate(130%)'
+    contain: 'layout paint style'
   },
   tabButton: {
     background: 'rgba(255, 255, 255, 0.055)',
-    border: '1px solid rgba(210, 236, 255, 0.12)',
+    border: '1px solid rgba(255, 214, 219, 0.12)',
     borderRadius: '12px',
-    color: '#cdd6e8',
+    color: '#d8c9cd',
     cursor: 'pointer',
     fontWeight: 760,
     minHeight: '42px',
@@ -173,14 +173,14 @@ const styles: Record<string, React.CSSProperties> = {
     transition: 'background 150ms ease, border-color 150ms ease, color 150ms ease, transform 100ms ease, box-shadow 150ms ease'
   },
   activeTabButton: {
-    border: '1px solid rgba(110, 231, 255, 0.72)',
-    background: 'linear-gradient(135deg, rgba(110, 231, 255, 0.2), rgba(124, 255, 201, 0.12))',
-    color: '#f5feff',
-    boxShadow: '0 10px 24px rgba(110, 231, 255, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.22)'
+    border: '1px solid rgba(255, 43, 61, 0.72)',
+    background: 'linear-gradient(135deg, rgba(224, 16, 48, 0.32), rgba(255, 43, 61, 0.14))',
+    color: '#fff4f5',
+    boxShadow: '0 0 0 1px rgba(255, 43, 61, 0.12), 0 0 22px rgba(255, 43, 61, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
   },
   tabButtonHover: {
     background: 'rgba(255, 255, 255, 0.1)',
-    border: '1px solid rgba(210, 236, 255, 0.28)'
+    border: '1px solid rgba(255, 214, 219, 0.24)'
   },
   tabButtonActive: {
     transform: 'translateY(1px)',
@@ -188,10 +188,10 @@ const styles: Record<string, React.CSSProperties> = {
   },
   instructions: {
     padding: '0.85rem 1rem',
-    background: 'rgba(16, 22, 34, 0.64)',
-    border: '1px solid rgba(210, 236, 255, 0.12)',
+    background: 'rgba(24, 10, 13, 0.72)',
+    border: '1px solid rgba(255, 214, 219, 0.12)',
     borderRadius: '14px',
-    color: '#cdd6e8',
+    color: '#d8c9cd',
     fontSize: '0.85rem',
     lineHeight: 1.5,
     boxShadow: '0 12px 28px rgba(0, 0, 0, 0.2)'

@@ -18,10 +18,10 @@ import { getFlipPrepApiUrl } from '../wubpad-integration/env';
 import { ActionButton, StatusMessage, styles, toArrayBuffer, ToolPanel } from './SampleManglerView';
 
 const TRACK_COLORS: Record<RemixTrackType, string> = {
-  acapella: '#ff5cc8',
-  drums: '#ffcc33',
-  bass: '#00cfff',
-  fills: '#00ff99'
+  acapella: '#ff2b3d',
+  drums: '#ff7a86',
+  bass: '#e01030',
+  fills: '#d9e2ea'
 };
 
 export function RemixToDubstepView() {
@@ -173,7 +173,7 @@ export function RemixToDubstepView() {
   }
 
   return (
-    <ToolPanel title="Remix to Dubstep" tone="#ffcc33">
+    <ToolPanel title="Remix to Dubstep" tone="#ff7a86">
       <p style={{ color: '#d8d8d8', lineHeight: 1.5 }}>
         This creates an editable dubstep skeleton to finish in your DAW or here. It is not a finished auto-track.
       </p>
@@ -244,17 +244,17 @@ export function RemixToDubstepView() {
 function Timeline({ arrangement, onMute, onSolo }: { arrangement: RemixArrangement; onMute: (trackId: string) => void; onSolo: (trackId: string) => void }) {
   const totalBars = arrangement.sections.reduce((max, section) => Math.max(max, section.startBar + section.bars), 0);
   return (
-    <div style={{ marginTop: '1rem', border: '1px solid rgba(210, 236, 255, 0.14)', borderTop: '1px solid rgba(255, 255, 255, 0.18)', borderRadius: 14, overflow: 'hidden', background: 'rgba(7, 12, 20, 0.72)', boxShadow: '0 16px 38px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.08)' }}>
+    <div style={{ marginTop: '1rem', border: '1px solid rgba(255, 214, 219, 0.14)', borderTop: '1px solid rgba(255, 255, 255, 0.18)', borderRadius: 14, overflow: 'hidden', background: 'rgba(13, 8, 9, 0.78)', boxShadow: '0 16px 38px rgba(0, 0, 0, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.08)', contain: 'layout paint style' }}>
       <div style={{ display: 'grid', gridTemplateColumns: `140px repeat(${totalBars}, minmax(12px, 1fr))`, background: 'rgba(255, 255, 255, 0.055)' }}>
-        <div style={{ padding: '0.6rem', color: '#a8b3c7', fontWeight: 760 }}>Sections</div>
+        <div style={{ padding: '0.6rem', color: '#c6aeb4', fontWeight: 760 }}>Sections</div>
         {arrangement.sections.map((section) => (
-          <div key={section.id} style={{ gridColumn: `${section.startBar + 2} / span ${section.bars}`, padding: '0.6rem 0.35rem', color: '#f5f8ff', borderLeft: '1px solid rgba(210, 236, 255, 0.12)', fontSize: '0.75rem', fontWeight: 760 }}>
+          <div key={section.id} style={{ gridColumn: `${section.startBar + 2} / span ${section.bars}`, padding: '0.6rem 0.35rem', color: '#fff4f5', borderLeft: '1px solid rgba(255, 214, 219, 0.1)', fontSize: '0.75rem', fontWeight: 760 }}>
             {section.label}
           </div>
         ))}
       </div>
       {arrangement.tracks.map((track) => (
-        <div key={track.id} style={{ display: 'grid', gridTemplateColumns: `140px repeat(${totalBars}, minmax(12px, 1fr))`, minHeight: 52, borderTop: '1px solid rgba(210, 236, 255, 0.1)', background: 'rgba(255, 255, 255, 0.028)' }}>
+        <div key={track.id} style={{ display: 'grid', gridTemplateColumns: `140px repeat(${totalBars}, minmax(12px, 1fr))`, minHeight: 52, borderTop: '1px solid rgba(255, 214, 219, 0.1)', background: 'rgba(255, 255, 255, 0.028)' }}>
           <div style={{ padding: '0.45rem', display: 'grid', gap: 4 }}>
             <strong style={{ color: TRACK_COLORS[track.type], fontSize: '0.78rem' }}>{track.name}</strong>
             <span>
@@ -291,9 +291,9 @@ function miniButton(active: boolean): React.CSSProperties {
     minHeight: 24,
     marginRight: 4,
     borderRadius: 8,
-    border: `1px solid ${active ? 'rgba(110, 231, 255, 0.72)' : 'rgba(210, 236, 255, 0.18)'}`,
-    background: active ? 'rgba(110, 231, 255, 0.16)' : 'rgba(255, 255, 255, 0.06)',
-    color: active ? '#dffcff' : '#d7deeb',
+    border: `1px solid ${active ? 'rgba(255, 43, 61, 0.72)' : 'rgba(255, 214, 219, 0.16)'}`,
+    background: active ? 'rgba(255, 43, 61, 0.18)' : 'rgba(255, 255, 255, 0.06)',
+    color: active ? '#fff4f5' : '#d8c9cd',
     cursor: 'pointer'
   };
 }

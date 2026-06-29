@@ -259,8 +259,8 @@ export function BassSynthView() {
   }
 
   return (
-    <ToolPanel title="Bass Synth" tone="#00cfff">
-      <canvas ref={canvasRef} className="wub-canvas-frame" style={{ ...styles.waveform, height: 150, background: 'rgba(6, 11, 19, 0.78)', border: '1px solid rgba(210, 236, 255, 0.16)', borderRadius: '14px' }} />
+    <ToolPanel title="Bass Synth" tone="#ff2b3d">
+      <canvas ref={canvasRef} className="wub-canvas-frame" style={{ ...styles.waveform, height: 150, background: 'rgba(13, 8, 9, 0.86)', border: '1px solid rgba(255, 214, 219, 0.14)', borderRadius: '14px' }} />
       <div style={styles.actions}>
         <ActionButton variant="danger" onClick={panicStop}>STOP ALL</ActionButton>
         <span style={{ ...styles.control, minWidth: 150 }}>LFO HZ <strong>{resolveLfoHz(preset, engine.getBpm()).toFixed(2)}</strong></span>
@@ -306,10 +306,10 @@ export function BassSynthView() {
             style={{
               minWidth: 54,
               minHeight: 50,
-              border: latchedNotes.includes(freq) ? '1px solid rgba(110, 231, 255, 0.74)' : undefined,
-              color: latchedNotes.includes(freq) ? '#dffcff' : undefined,
-              background: latchedNotes.includes(freq) ? 'linear-gradient(135deg, rgba(110, 231, 255, 0.28), rgba(124, 255, 201, 0.12))' : undefined,
-              boxShadow: latchedNotes.includes(freq) ? '0 0 0 1px rgba(110, 231, 255, 0.12), 0 16px 34px rgba(110, 231, 255, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.2)' : undefined
+              border: latchedNotes.includes(freq) ? '1px solid rgba(255, 43, 61, 0.78)' : undefined,
+              color: latchedNotes.includes(freq) ? '#fff4f5' : undefined,
+              background: latchedNotes.includes(freq) ? 'linear-gradient(135deg, rgba(224, 16, 48, 0.34), rgba(255, 43, 61, 0.16))' : undefined,
+              boxShadow: latchedNotes.includes(freq) ? '0 0 0 1px rgba(255, 43, 61, 0.14), 0 0 24px rgba(255, 43, 61, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.2)' : undefined
             }}
             onPointerDown={(event) => {
               event.currentTarget.setPointerCapture?.(event.pointerId);
@@ -392,9 +392,9 @@ function drawSpectrum(canvas: HTMLCanvasElement | null, analyser: AnalyserNode, 
   analyser.getByteFrequencyData(bins);
   ctx.scale(dpr, dpr);
   ctx.clearRect(0, 0, rect.width, rect.height);
-  ctx.fillStyle = '#101010';
+  ctx.fillStyle = '#12070b';
   ctx.fillRect(0, 0, rect.width, rect.height);
-  ctx.fillStyle = '#00cfff';
+  ctx.fillStyle = '#ff2b3d';
   const bars = 72;
   for (let i = 0; i < bars; i++) {
     const value = bins[Math.floor((i / bars) * bins.length)] / 255;

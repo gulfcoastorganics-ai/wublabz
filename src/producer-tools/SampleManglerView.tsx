@@ -134,7 +134,7 @@ export function SampleManglerView() {
   }
 
   return (
-    <ToolPanel title="Sample Mangler" tone="#00ff99">
+    <ToolPanel title="Sample Mangler" tone="#ff2b3d">
       <label style={styles.dropZone}>
         <input type="file" accept="audio/*" disabled={loadingAction === 'load'} onChange={(event) => void load(event.target.files?.[0])} style={{ display: 'none' }} />
         <canvas
@@ -210,13 +210,13 @@ function drawWaveform(canvas: HTMLCanvasElement | null, buffer: ChannelBuffer | 
   if (!ctx) return;
   ctx.scale(dpr, dpr);
   ctx.clearRect(0, 0, rect.width, rect.height);
-  ctx.fillStyle = '#222';
+  ctx.fillStyle = '#12070b';
   ctx.fillRect(0, 0, rect.width, rect.height);
   if (!buffer) return;
   const data = buffer.channels[0];
   const step = Math.max(1, Math.floor(data.length / rect.width));
   const mid = rect.height / 2;
-  ctx.fillStyle = '#00ff99';
+  ctx.fillStyle = '#ff2b3d';
   for (let x = 0; x < rect.width; x++) {
     let min = 1;
     let max = -1;
@@ -237,12 +237,12 @@ function drawWaveform(canvas: HTMLCanvasElement | null, buffer: ChannelBuffer | 
   }
   const selectedX = (rect.width / slices) * selectedSlice;
   const selectedWidth = rect.width / slices;
-  ctx.fillStyle = 'rgba(0, 255, 153, 0.12)';
+  ctx.fillStyle = 'rgba(255, 43, 61, 0.16)';
   ctx.fillRect(selectedX, 0, selectedWidth, rect.height);
-  ctx.strokeStyle = '#ffcc33';
+  ctx.strokeStyle = '#ff7a86';
   ctx.lineWidth = 2;
   ctx.strokeRect(selectedX + 1, 1, Math.max(1, selectedWidth - 2), Math.max(1, rect.height - 2));
-  ctx.fillStyle = '#ffcc33';
+  ctx.fillStyle = '#ff7a86';
   ctx.font = '11px sans-serif';
   ctx.fillText(`Slice ${selectedSlice + 1}`, selectedX + 6, 16);
 }
@@ -352,52 +352,52 @@ export function ActionButton({ variant = 'default', loading = false, disabled, s
 export const styles: Record<string, React.CSSProperties> = {
   panel: {
     padding: '1.15rem',
-    color: '#f5f8ff',
+    color: '#fff4f5',
     display: 'grid',
     gap: '1rem',
-    border: '1px solid rgba(210, 236, 255, 0.16)',
+    border: '1px solid rgba(255, 214, 219, 0.14)',
     borderTop: '1px solid rgba(255, 255, 255, 0.24)',
     borderRadius: '18px',
-    background: 'linear-gradient(145deg, rgba(16, 22, 34, 0.78), rgba(11, 17, 28, 0.58))',
-    boxShadow: '0 22px 60px rgba(0, 0, 0, 0.36), inset 0 1px 0 rgba(255, 255, 255, 0.14)'
+    background: 'linear-gradient(145deg, rgba(34, 13, 17, 0.82), rgba(10, 6, 8, 0.66))',
+    boxShadow: '0 22px 54px rgba(0, 0, 0, 0.48), inset 0 1px 0 rgba(255, 255, 255, 0.13)'
   },
   panelTitle: { margin: 0, fontSize: '1.05rem', letterSpacing: 0, fontWeight: 850, textShadow: '0 0 18px currentColor' },
   dropZone: {
     display: 'block',
     position: 'relative',
     height: '190px',
-    border: '1px solid rgba(210, 236, 255, 0.16)',
+    border: '1px solid rgba(255, 214, 219, 0.14)',
     borderTop: '1px solid rgba(255, 255, 255, 0.2)',
     borderRadius: '14px',
     overflow: 'hidden',
     cursor: 'pointer',
-    background: 'linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(110, 231, 255, 0.05)), rgba(9, 14, 23, 0.74)',
+    background: 'linear-gradient(135deg, rgba(255, 255, 255, 0.075), rgba(255, 43, 61, 0.08)), rgba(13, 8, 9, 0.82)',
     boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 14px 34px rgba(0, 0, 0, 0.28)'
   },
   waveform: { width: '100%', height: '180px', display: 'block', borderRadius: '12px' },
-  dropText: { position: 'absolute', left: '0.85rem', top: '0.8rem', color: '#e5ecfa', fontSize: '0.78rem', fontWeight: 760, textShadow: '0 1px 8px rgba(0, 0, 0, 0.44)' },
+  dropText: { position: 'absolute', left: '0.85rem', top: '0.8rem', color: '#fff4f5', fontSize: '0.78rem', fontWeight: 760, textShadow: '0 1px 8px rgba(0, 0, 0, 0.5)' },
   grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '0.85rem' },
   control: {
     display: 'grid',
     gap: '0.45rem',
     padding: '0.8rem',
-    border: '1px solid rgba(210, 236, 255, 0.13)',
+    border: '1px solid rgba(255, 214, 219, 0.12)',
     borderTop: '1px solid rgba(255, 255, 255, 0.16)',
     borderRadius: '12px',
     background: 'linear-gradient(145deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.035))',
     boxShadow: '0 10px 24px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.08)',
     fontSize: '0.75rem',
-    color: '#b9c5d8'
+    color: '#c6aeb4'
   },
-  input: { minHeight: '36px', borderRadius: '10px', border: '1px solid rgba(210, 236, 255, 0.16)', background: 'rgba(3, 7, 13, 0.68)', color: '#f5f8ff', padding: '0 0.65rem', boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.06)' },
+  input: { minHeight: '36px', borderRadius: '10px', border: '1px solid rgba(255, 214, 219, 0.14)', background: 'rgba(7, 4, 5, 0.72)', color: '#fff4f5', padding: '0 0.65rem', boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.06)' },
   actions: { display: 'flex', flexWrap: 'wrap', gap: '0.6rem', alignItems: 'center' },
   button: {
     minHeight: '40px',
     padding: '0 0.9rem',
     borderRadius: '11px',
-    border: '1px solid rgba(210, 236, 255, 0.16)',
+    border: '1px solid rgba(255, 214, 219, 0.14)',
     background: 'linear-gradient(145deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.045))',
-    color: '#eef4ff',
+    color: '#fff4f5',
     cursor: 'pointer',
     fontWeight: 760,
     textDecoration: 'none',
@@ -411,16 +411,16 @@ export const styles: Record<string, React.CSSProperties> = {
     minHeight: '42px',
     padding: '0 1rem',
     borderRadius: '11px',
-    border: '1px solid rgba(110, 231, 255, 0.62)',
-    background: 'linear-gradient(135deg, rgba(110, 231, 255, 0.23), rgba(124, 255, 201, 0.13))',
-    color: '#dffcff',
+    border: '1px solid rgba(255, 43, 61, 0.68)',
+    background: 'linear-gradient(135deg, rgba(224, 16, 48, 0.32), rgba(255, 43, 61, 0.16))',
+    color: '#fff4f5',
     cursor: 'pointer',
     fontWeight: 850,
     textDecoration: 'none',
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
-    boxShadow: '0 14px 32px rgba(110, 231, 255, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.18)',
+    boxShadow: '0 0 0 1px rgba(255, 43, 61, 0.12), 0 0 22px rgba(255, 43, 61, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.18)',
     transition: 'background 140ms ease, border-color 140ms ease, transform 90ms ease, opacity 120ms ease, box-shadow 140ms ease'
   },
   dangerButton: {
@@ -435,10 +435,10 @@ export const styles: Record<string, React.CSSProperties> = {
     boxShadow: '0 14px 32px rgba(255, 107, 122, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.18)',
     transition: 'background 140ms ease, border-color 140ms ease, transform 90ms ease, opacity 120ms ease, box-shadow 140ms ease'
   },
-  buttonHover: { background: 'linear-gradient(145deg, rgba(255, 255, 255, 0.14), rgba(110, 231, 255, 0.08))', border: '1px solid rgba(210, 236, 255, 0.34)', boxShadow: '0 14px 28px rgba(0, 0, 0, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.16)' },
+  buttonHover: { background: 'linear-gradient(145deg, rgba(255, 255, 255, 0.13), rgba(255, 43, 61, 0.1))', border: '1px solid rgba(255, 214, 219, 0.24)', boxShadow: '0 0 18px rgba(255, 43, 61, 0.14), 0 14px 28px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.16)' },
   buttonActive: { transform: 'translateY(1px) scale(0.99)', background: 'rgba(255, 255, 255, 0.065)' },
   buttonDisabled: { opacity: 0.45, cursor: 'not-allowed', transform: 'none' },
-  statusSuccess: { padding: '0.7rem 0.85rem', border: '1px solid rgba(124, 255, 201, 0.42)', borderRadius: '12px', background: 'rgba(19, 63, 48, 0.58)', color: '#b7ffe3', fontSize: '0.82rem', boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.1)' },
+  statusSuccess: { padding: '0.7rem 0.85rem', border: '1px solid rgba(217, 226, 234, 0.28)', borderRadius: '12px', background: 'rgba(28, 30, 34, 0.62)', color: '#f1f5f8', fontSize: '0.82rem', boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.1)' },
   statusError: { padding: '0.7rem 0.85rem', border: '1px solid rgba(255, 107, 122, 0.48)', borderRadius: '12px', background: 'rgba(70, 18, 28, 0.6)', color: '#ffd3d8', fontSize: '0.82rem', boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.1)' },
-  statusInfo: { padding: '0.7rem 0.85rem', border: '1px solid rgba(110, 231, 255, 0.38)', borderRadius: '12px', background: 'rgba(20, 48, 70, 0.56)', color: '#c9f6ff', fontSize: '0.82rem', boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.1)' }
+  statusInfo: { padding: '0.7rem 0.85rem', border: '1px solid rgba(255, 43, 61, 0.34)', borderRadius: '12px', background: 'rgba(55, 11, 18, 0.56)', color: '#ffd7dc', fontSize: '0.82rem', boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.1)' }
 };

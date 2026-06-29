@@ -1,21 +1,23 @@
 :root {
   color-scheme: dark;
-  --wub-bg: #070912;
-  --wub-surface: rgba(16, 22, 34, 0.72);
-  --wub-surface-strong: rgba(22, 30, 44, 0.86);
-  --wub-glass-border: rgba(210, 236, 255, 0.16);
+  --wub-bg: #0a0608;
+  --wub-surface: rgba(24, 10, 13, 0.78);
+  --wub-surface-strong: rgba(34, 13, 17, 0.9);
+  --wub-glass-border: rgba(255, 214, 219, 0.14);
   --wub-glass-top: rgba(255, 255, 255, 0.22);
-  --wub-text: #f5f8ff;
-  --wub-muted: #a8b3c7;
-  --wub-cyan: #6ee7ff;
-  --wub-mint: #7cffc9;
-  --wub-pink: #ff6fcf;
+  --wub-text: #fff4f5;
+  --wub-muted: #c6aeb4;
+  --wub-red: #ff2b3d;
+  --wub-red-deep: #e01030;
+  --wub-red-dark: #5c0712;
+  --wub-cool: #d9e2ea;
   --wub-warn: #ffd166;
-  --wub-danger: #ff6b7a;
+  --wub-danger: #ff2b3d;
   --wub-radius: 14px;
   --wub-radius-sm: 10px;
-  --wub-shadow: 0 22px 60px rgba(0, 0, 0, 0.38), inset 0 1px 0 var(--wub-glass-top);
-  --wub-shadow-soft: 0 12px 28px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  --wub-red-glow: 0 0 0 1px rgba(255, 43, 61, 0.18), 0 0 18px rgba(255, 43, 61, 0.2);
+  --wub-shadow: 0 22px 54px rgba(0, 0, 0, 0.46), inset 0 1px 0 var(--wub-glass-top);
+  --wub-shadow-soft: 0 12px 26px rgba(0, 0, 0, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
 * {
@@ -47,7 +49,7 @@ button:focus-visible,
 input:focus-visible,
 select:focus-visible,
 a:focus-visible {
-  outline: 2px solid var(--wub-cyan);
+  outline: 2px solid var(--wub-red);
   outline-offset: 3px;
 }
 
@@ -63,10 +65,10 @@ a:focus-visible {
   inset: 0;
   z-index: -2;
   background:
-    radial-gradient(circle at 16% 12%, rgba(110, 231, 255, 0.24), transparent 28%),
-    radial-gradient(circle at 82% 8%, rgba(255, 111, 207, 0.2), transparent 30%),
-    radial-gradient(circle at 60% 92%, rgba(124, 255, 201, 0.14), transparent 34%),
-    linear-gradient(135deg, #070912 0%, #0d1422 45%, #090a13 100%);
+    radial-gradient(circle at 18% 8%, rgba(255, 43, 61, 0.2), transparent 29%),
+    radial-gradient(circle at 84% 14%, rgba(224, 16, 48, 0.16), transparent 31%),
+    radial-gradient(circle at 54% 96%, rgba(92, 7, 18, 0.3), transparent 38%),
+    linear-gradient(135deg, #0a0608 0%, #12070b 46%, #070405 100%);
 }
 
 .wub-shell-bg::after {
@@ -80,9 +82,16 @@ a:focus-visible {
   mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.8), transparent 78%);
 }
 
+.wub-glass-panel,
+.wub-view-mount {
+  contain: layout paint style;
+  isolation: isolate;
+}
+
 .wub-glass-panel {
-  backdrop-filter: blur(18px) saturate(135%);
-  -webkit-backdrop-filter: blur(18px) saturate(135%);
+  background-image:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.065), rgba(255, 255, 255, 0.022)),
+    radial-gradient(circle at 12% 0%, rgba(255, 43, 61, 0.12), transparent 34%);
 }
 
 .wub-control-input,
@@ -92,20 +101,21 @@ a:focus-visible {
 
 .wub-control-input:hover,
 .wub-control-select:hover {
-  border-color: rgba(110, 231, 255, 0.42) !important;
+  border-color: rgba(255, 43, 61, 0.46) !important;
 }
 
 .wub-slider {
   width: 100%;
-  accent-color: var(--wub-cyan);
+  accent-color: var(--wub-red);
   cursor: pointer;
+  contain: paint;
 }
 
 .wub-slider::-webkit-slider-runnable-track {
   height: 8px;
   border-radius: 999px;
-  background: linear-gradient(90deg, rgba(110, 231, 255, 0.9), rgba(124, 255, 201, 0.72));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  background: linear-gradient(90deg, rgba(224, 16, 48, 0.92), rgba(255, 43, 61, 0.96));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 0 0 1px rgba(255, 43, 61, 0.22), 0 0 14px rgba(255, 43, 61, 0.18);
 }
 
 .wub-slider::-webkit-slider-thumb {
@@ -115,14 +125,14 @@ a:focus-visible {
   margin-top: -5px;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.76);
-  background: linear-gradient(135deg, #ffffff, #a8f7ff 45%, #6ee7ff);
-  box-shadow: 0 8px 18px rgba(110, 231, 255, 0.28);
+  background: linear-gradient(135deg, #fff7f8, #ff7a86 46%, #ff2b3d);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.42), 0 6px 16px rgba(255, 43, 61, 0.34), 0 0 18px rgba(255, 43, 61, 0.26);
 }
 
 .wub-slider::-moz-range-track {
   height: 8px;
   border-radius: 999px;
-  background: linear-gradient(90deg, rgba(110, 231, 255, 0.9), rgba(124, 255, 201, 0.72));
+  background: linear-gradient(90deg, rgba(224, 16, 48, 0.92), rgba(255, 43, 61, 0.96));
 }
 
 .wub-slider::-moz-range-thumb {
@@ -130,7 +140,7 @@ a:focus-visible {
   height: 18px;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.76);
-  background: #b7f8ff;
+  background: #ff4b5c;
 }
 
 .wub-progress {
@@ -148,12 +158,12 @@ a:focus-visible {
 
 .wub-progress::-webkit-progress-value {
   border-radius: 999px;
-  background: linear-gradient(90deg, var(--wub-pink), var(--wub-cyan));
+  background: linear-gradient(90deg, var(--wub-red-deep), var(--wub-red));
 }
 
 .wub-progress::-moz-progress-bar {
   border-radius: 999px;
-  background: linear-gradient(90deg, var(--wub-pink), var(--wub-cyan));
+  background: linear-gradient(90deg, var(--wub-red-deep), var(--wub-red));
 }
 
 .wub-audio {

@@ -8,6 +8,9 @@ export const SPLIT_CROSSOVER_HZ = 220;
 export const DUBSTEP_SUB_MIN_HZ = 40;
 export const DUBSTEP_SUB_MAX_HZ = 80;
 export const MAX_GROWL_VOICES = 6;
+export const MIN_CLICK_FREE_ATTACK_SECONDS = 0.005;
+export const MIN_CLICK_FREE_FILTER_ATTACK_SECONDS = 0.02;
+export const MIN_LFO_DEPTH_ATTACK_SECONDS = 0.024;
 
 export interface GrowlPreset {
   osc1: ProducerOscillatorType;
@@ -194,14 +197,19 @@ export interface AdsrStageTimes {
   releaseEnd: number;
 }
 
-export function resolveAdsrStageTimes(startTime: number, attack: number, decay: number, release: number, noteOffTime = startTime): AdsrStageTimes {
-  const attackEnd = startTime + Math.max(0, attack);
+export function resolveAdsrStageTimes(startTime: number, attack: number, decay: number, release: number, noteOffTime = startTime, minAttackSeconds = 0): AdsrStageTimes {
+  const attackEnd = startTime + Math.max(minAttackSeconds, attack);
   const decayEnd = attackEnd + Math.max(0, decay);
   return {
     attackEnd,
     decayEnd,
     releaseEnd: noteOffTime + Math.max(0, release)
   };
+}
+
+export function resolveFilterAttackFloorSeconds(resonance: number): number {
+  const resonanceExtra = Math.max(0, Math.min(12, resonance - 8)) * 0.0016;
+  return Math.min(0.036, MIN_CLICK_FREE_FILTER_ATTACK_SECONDS + resonanceExtra);
 }
 
 export function createDriveCurve(type: DriveType, amount: number, samples = 2048): Float32Array {

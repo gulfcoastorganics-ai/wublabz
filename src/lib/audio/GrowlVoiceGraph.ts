@@ -1,4 +1,4 @@
-import { createDriveCurve, driveMakeupGain, resolveAdsrStageTimes, resolveDubstepSubFrequency, resolveLfoHz, SPLIT_CROSSOVER_HZ, type GrowlPreset, type LfoShape } from '../producer-tools/synth.js';
+import { createDriveCurve, driveMakeupGain, MIN_CLICK_FREE_ATTACK_SECONDS, MIN_LFO_DEPTH_ATTACK_SECONDS, resolveAdsrStageTimes, resolveDubstepSubFrequency, resolveFilterAttackFloorSeconds, resolveLfoHz, SPLIT_CROSSOVER_HZ, type GrowlPreset, type LfoShape } from '../producer-tools/synth.js';
 
 export interface GrowlVoice {
   start: (time?: number) => void;
@@ -158,37 +158,57 @@ export function createGrowlVoice(
     output: amp,
     updatePreset: applyLivePreset,
     start(time = context.currentTime) {
-      const peak = 0.31;
-      const ampTimes = resolveAdsrStageTimes(time, preset.attack, preset.decay, preset.release);
-      const filterTimes = resolveAdsrStageTimes(time, preset.filterAttack, preset.filterDecay, preset.filterRelease);
+      const peak = 0.285;
+      const safeStartTime = Math.max(0, time);
+      const resonanceTarget = clamp(preset.resonance ?? 10, 0.5, 14);
+      const filterAttackFloor = resolveFilterAttackFloorSeconds(resonanceTarget);
+      const ampTimes = resolveAdsrStageTimes(safeStartTime, preset.attack, preset.decay, preset.release, safeStartTime, MIN_CLICK_FREE_ATTACK_SECONDS);
+      const filterTimes = resolveAdsrStageTimes(safeStartTime, preset.filterAttack, preset.filterDecay, preset.filterRelease, safeStartTime, filterAttackFloor);
       const baseCutoff = resolveTrackedCutoff(preset, targetFrequencyHz);
       const envelopeAmount = clamp(preset.filterEnvelopeAmount ?? 0.78, 0, 1);
       const startCutoff = Math.max(60, baseCutoff * (0.38 + envelopeAmount * 0.12));
       const wowCutoff = Math.min(12000, baseCutoff * (1.2 + envelopeAmount * 1.55));
       const sustainCutoff = Math.max(60, baseCutoff * preset.filterSustain);
       const formantAmount = clamp(preset.formantAmount ?? 0, 0, 1);
-      amp.gain.cancelScheduledValues(time);
-      amp.gain.setValueAtTime(0.0001, time);
+      const modulationAttackEnd = safeStartTime + MIN_LFO_DEPTH_ATTACK_SECONDS;
+      const lfoDepthTarget = baseCutoff * (preset.lfoDepth ?? 0);
+      const secondLfoDepthTarget = baseCutoff * resolveSecondLfoDepth(preset);
+      amp.gain.cancelScheduledValues(safeStartTime);
+      amp.gain.setValueAtTime(0, safeStartTime);
       amp.gain.linearRampToValueAtTime(peak, ampTimes.attackEnd);
       amp.gain.linearRampToValueAtTime(peak * preset.sustain, ampTimes.decayEnd);
-      filter.frequency.cancelScheduledValues(time);
-      filter.frequency.setValueAtTime(startCutoff, time);
-      filter.frequency.linearRampToValueAtTime(wowCutoff, filterTimes.attackEnd);
-      filter.frequency.linearRampToValueAtTime(sustainCutoff, filterTimes.decayEnd);
-      formant.frequency.cancelScheduledValues(time);
-      formant.frequency.setValueAtTime(Math.max(180, startCutoff * (1.8 + formantAmount)), time);
-      formant.frequency.linearRampToValueAtTime(Math.min(5200, wowCutoff * (1.45 + formantAmount)), filterTimes.attackEnd);
-      formant.frequency.linearRampToValueAtTime(Math.min(4200, sustainCutoff * (2.1 + formantAmount)), filterTimes.decayEnd);
-      postFilter.gain.cancelScheduledValues(time);
-      postFilter.gain.setValueAtTime(0.15 + formantAmount * 0.45, time);
+      filter.frequency.cancelScheduledValues(safeStartTime);
+      scheduleSmoothAttack(filter.frequency, startCutoff, wowCutoff, sustainCutoff, safeStartTime, filterTimes.attackEnd, filterTimes.decayEnd);
+      filter.Q.cancelScheduledValues(safeStartTime);
+      filter.Q.setValueAtTime(Math.max(0.7, resonanceTarget * 0.25), safeStartTime);
+      filter.Q.linearRampToValueAtTime(resonanceTarget, filterTimes.attackEnd);
+      formant.frequency.cancelScheduledValues(safeStartTime);
+      scheduleSmoothAttack(
+        formant.frequency,
+        Math.max(180, startCutoff * (1.8 + formantAmount)),
+        Math.min(5200, wowCutoff * (1.45 + formantAmount)),
+        Math.min(4200, sustainCutoff * (2.1 + formantAmount)),
+        safeStartTime,
+        filterTimes.attackEnd,
+        filterTimes.decayEnd
+      );
+      lfoDepth.gain.cancelScheduledValues(safeStartTime);
+      lfoDepth.gain.setValueAtTime(0, safeStartTime);
+      lfoDepth.gain.linearRampToValueAtTime(lfoDepthTarget, modulationAttackEnd);
+      secondLfoDepth.gain.cancelScheduledValues(safeStartTime);
+      secondLfoDepth.gain.setValueAtTime(0, safeStartTime);
+      secondLfoDepth.gain.linearRampToValueAtTime(secondLfoDepthTarget, modulationAttackEnd);
+      postFilter.gain.cancelScheduledValues(safeStartTime);
+      postFilter.gain.setValueAtTime(0, safeStartTime);
+      postFilter.gain.linearRampToValueAtTime(0.15 + formantAmount * 0.45, ampTimes.attackEnd);
       for (const node of oscillators) {
-        node.start(time);
+        node.start(safeStartTime);
       }
-      sub.start(time);
-      lfo.start(time);
-      secondLfo.start(time);
+      sub.start(safeStartTime);
+      lfo.start(safeStartTime);
+      secondLfo.start(safeStartTime);
       if (currentFrequencyHz !== targetFrequencyHz) {
-        glideToFrequency(targetFrequencyHz, time, preset.glideSeconds ?? 0);
+        glideToFrequency(targetFrequencyHz, safeStartTime, preset.glideSeconds ?? 0);
       }
     },
     stop(time = context.currentTime, releaseSeconds?: number) {
@@ -276,5 +296,28 @@ function setRamp(param: any, fromValue: number, toValue: number, startTime: numb
     param.linearRampToValueAtTime(toValue, endTime);
   } else if (param && 'value' in param) {
     param.value = toValue;
+  }
+}
+
+function scheduleSmoothAttack(param: any, startValue: number, peakValue: number, sustainValue: number, startTime: number, attackEnd: number, decayEnd: number): void {
+  if (typeof param?.setValueAtTime === 'function') {
+    param.setValueAtTime(startValue, startTime);
+  } else if (param && 'value' in param) {
+    param.value = startValue;
+  }
+
+  if (attackEnd > startTime && typeof param?.linearRampToValueAtTime === 'function') {
+    const midpointTime = startTime + (attackEnd - startTime) * 0.55;
+    const midpointValue = startValue + (peakValue - startValue) * 0.38;
+    param.linearRampToValueAtTime(midpointValue, midpointTime);
+    param.linearRampToValueAtTime(peakValue, attackEnd);
+  } else if (param && 'value' in param) {
+    param.value = peakValue;
+  }
+
+  if (decayEnd > attackEnd && typeof param?.linearRampToValueAtTime === 'function') {
+    param.linearRampToValueAtTime(sustainValue, decayEnd);
+  } else if (param && 'value' in param) {
+    param.value = sustainValue;
   }
 }

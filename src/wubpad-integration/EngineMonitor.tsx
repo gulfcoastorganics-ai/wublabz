@@ -80,31 +80,31 @@ export const EngineMonitor: React.FC = () => {
   return (
     <div className="wub-glass-panel wub-view-mount" style={{
       padding: '1.15rem',
-      border: '1px solid rgba(210, 236, 255, 0.16)',
+      border: '1px solid rgba(255, 214, 219, 0.14)',
       borderTop: '1px solid rgba(255, 255, 255, 0.24)',
       borderRadius: '18px',
-      background: 'linear-gradient(145deg, rgba(16, 22, 34, 0.78), rgba(11, 17, 28, 0.58))',
-      boxShadow: '0 22px 60px rgba(0, 0, 0, 0.36), inset 0 1px 0 rgba(255, 255, 255, 0.14)',
+      background: 'linear-gradient(145deg, rgba(34, 13, 17, 0.82), rgba(10, 6, 8, 0.68))',
+      boxShadow: '0 22px 54px rgba(0, 0, 0, 0.48), inset 0 1px 0 rgba(255, 255, 255, 0.13)',
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
       fontSize: '0.85rem',
-      color: '#f5f8ff'
+      color: '#fff4f5'
     }}>
       <h3 style={{ margin: '0 0 1rem 0', fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif', fontSize: '1.05rem' }}>Engine Monitor {isMockMode() && <span style={{ color: '#ffd166' }}>(MOCK MODE)</span>}</h3>
       
-      <div style={{ display: 'grid', gridTemplateColumns: '150px 1fr', gap: '0.65rem', padding: '0.9rem', border: '1px solid rgba(210, 236, 255, 0.12)', borderRadius: '14px', background: 'rgba(255, 255, 255, 0.045)' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '150px 1fr', gap: '0.65rem', padding: '0.9rem', border: '1px solid rgba(255, 214, 219, 0.12)', borderRadius: '14px', background: 'rgba(255, 255, 255, 0.045)' }}>
         <strong>Frontend URL:</strong> <span>{getCurrentHref()}</span>
         <strong>HTTP URL:</strong> <span>{getWubLabzHttpUrl()}</span>
         <strong>WS URL:</strong> <span>{getWubLabzWsUrl()}</span>
         
         <strong>Socket Status:</strong> 
-        <span style={{ color: status === 'connected' ? '#7cffc9' : status === 'tripped' ? '#ff6b7a' : '#ffd166', fontWeight: 'bold' }}>
+        <span style={{ color: status === 'connected' ? '#ff2b3d' : status === 'tripped' ? '#ff2b3d' : '#ffd166', fontWeight: 'bold' }}>
           {status.toUpperCase()}
         </span>
 
         <strong>Reconnects:</strong> <span>{reconnectAttempts}</span>
 
         <strong>Health Check:</strong>
-        <span style={{ color: healthOk ? '#7cffc9' : health ? '#ff6b7a' : '#a8b3c7' }}>
+        <span style={{ color: healthOk ? '#ff2b3d' : health ? '#ff2b3d' : '#c6aeb4' }}>
           {healthLabel}
         </span>
 
@@ -113,12 +113,12 @@ export const EngineMonitor: React.FC = () => {
         <strong>Connections:</strong> <span>{getFiniteNumber(diagnostics?.activeConnectionCount, 0)}</span>
         <strong>Transport:</strong> <span>{formatUpper(diagnostics?.transportState, 'STOPPED')}</span>
         <strong>Scene:</strong> <span>{getString(diagnostics?.currentScene, '---')}</span>
-        <strong>E-Stop:</strong> <span style={{ color: emergencyStopped ? '#ff6b7a' : 'inherit' }}>{emergencyStopped ? 'STOPPED' : 'CLEAR'}</span>
+        <strong>E-Stop:</strong> <span style={{ color: emergencyStopped ? '#ff2b3d' : 'inherit' }}>{emergencyStopped ? 'STOPPED' : 'CLEAR'}</span>
       </div>
 
-      <div style={{ marginTop: '1rem', border: '1px solid rgba(210, 236, 255, 0.12)', borderRadius: '14px', padding: '0.9rem', background: 'rgba(255, 255, 255, 0.04)' }}>
+      <div style={{ marginTop: '1rem', border: '1px solid rgba(255, 214, 219, 0.12)', borderRadius: '14px', padding: '0.9rem', background: 'rgba(255, 255, 255, 0.04)' }}>
           <strong>WubPad Pairing Instructions:</strong>
-          <div style={{ fontSize: '0.75rem', marginTop: '0.35rem', color: '#a8b3c7', lineHeight: 1.55 }}>
+          <div style={{ fontSize: '0.75rem', marginTop: '0.35rem', color: '#c6aeb4', lineHeight: 1.55 }}>
               1. Open WubPad UI in a mobile or tablet browser.<br/>
               2. Go to SETTINGS.<br/>
               3. Enter Engine URL: <code>{getWubLabzWsUrl()}</code><br/>
