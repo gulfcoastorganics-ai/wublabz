@@ -12,7 +12,8 @@ import {
 import { decodeWavHeader, encodeWav } from '../src/lib/export/wav.js';
 import { applyMasterGlueCompression, DEFAULT_MASTER_GLUE_RATIO, DEFAULT_MASTER_GLUE_THRESHOLD_DB, DEFAULT_MASTER_HEADROOM_DB, getPeakAmplitude, monoLowBand, normalizeChannelBuffer, normalizeTruePeakSafe, renderMasterChannelBuffer } from '../src/lib/audio/outputQuality.js';
 import { applyEqualPowerFade, createSlicePlan, renderMangledBuffer, softLimitSample, type ChannelBuffer } from '../src/lib/producer-tools/mangler.js';
-import { DEFAULT_GROWL_PRESET, driveMakeupGain, lfoSyncHz, resolveAdsrStageTimes, resolveDubstepSubFrequency, SPLIT_CROSSOVER_HZ } from '../src/lib/producer-tools/synth.js';
+import { clampFlipPrepClipSelection, estimateFlipPrepTotalSeconds, trimChannelBuffer } from '../src/lib/producer-tools/flipPrepClip.js';
+import { DEFAULT_GROWL_PRESET, STARTER_GROWL_PRESETS, driveMakeupGain, lfoSyncHz, normalizeGrowlPreset, resolveAdsrStageTimes, resolveDubstepSubFrequency, SPLIT_CROSSOVER_HZ } from '../src/lib/producer-tools/synth.js';
 
 function sourceBuffer(length = 32): ChannelBuffer {
   const channel = new Float32Array(length);
@@ -48,6 +49,47 @@ describe('producer tool DSP logic', () => {
     expect(rendered.channels[0].length).toBeGreaterThan(0);
     expect(Math.max(...rendered.channels[0])).toBeLessThanOrEqual(1);
     expect(Math.min(...rendered.channels[0])).toBeGreaterThanOrEqual(-1);
+  });
+
+  it('applies mangler effects without breaking render bounds', () => {
+    const rendered = renderMangledBuffer(sourceBuffer(128), {
+      slices: 8,
+      glitch: 0.4,
+      pitchSemitones: -2,
+      crossfadeMs: 2,
+      gain: 1.1,
+      seed: 'fx',
+      bitcrush: 0.75,
+      filterSweep: 0.8,
+      reverseChance: 0.5,
+      gate: 0.6,
+      stutter: 0.9,
+      tapeStop: 0.45
+    });
+
+    expect(rendered.channels).toHaveLength(1);
+    expect(rendered.channels[0].length).toBeGreaterThan(0);
+    expect(Math.max(...rendered.channels[0])).toBeLessThanOrEqual(1);
+    expect(Math.min(...rendered.channels[0])).toBeGreaterThanOrEqual(-1);
+  });
+
+  it('honors explicit slice order and per-slice overrides', () => {
+    const rendered = renderMangledBuffer(sourceBuffer(64), {
+      slices: 4,
+      glitch: 0,
+      pitchSemitones: 0,
+      crossfadeMs: 0,
+      gain: 1,
+      seed: 'manual',
+      order: [3, 2, 1, 0],
+      sliceOverrides: {
+        3: { reversed: true, repeats: 2, gain: 0.5 },
+        1: { muted: true }
+      }
+    });
+
+    expect(rendered.channels[0].length).toBeGreaterThan(0);
+    expect(getPeakAmplitude(rendered)).toBeLessThanOrEqual(1);
   });
 
   it('uses equal-power fades at slice edges', () => {
@@ -115,6 +157,21 @@ describe('producer tool DSP logic', () => {
     expect(DEFAULT_GROWL_PRESET.subLevel).toBeGreaterThanOrEqual(0.9);
     expect(DEFAULT_GROWL_PRESET.drive).toBeGreaterThanOrEqual(0.55);
     expect(DEFAULT_GROWL_PRESET.unisonVoices).toBeGreaterThanOrEqual(3);
+    expect(DEFAULT_GROWL_PRESET.glideSeconds).toBeGreaterThan(0);
+  });
+
+  it('ships complete starter growl presets for instant loading', () => {
+    expect(STARTER_GROWL_PRESETS.map((entry) => entry.name)).toEqual(['Deep Sub', 'Reese', 'Talking Bass', 'Hard Growl']);
+    for (const entry of STARTER_GROWL_PRESETS) {
+      expect(entry.preset.subLevel).toBeGreaterThan(0.8);
+      expect(entry.preset.glideSeconds).toBeGreaterThanOrEqual(0);
+      expect(entry.preset.bpm).toBe(DEFAULT_GROWL_PRESET.bpm);
+    }
+  });
+
+  it('normalizes older saved growl presets with newly added fields', () => {
+    const normalized = normalizeGrowlPreset({ ...DEFAULT_GROWL_PRESET, glideSeconds: undefined });
+    expect(normalized.glideSeconds).toBe(DEFAULT_GROWL_PRESET.glideSeconds);
   });
 
   it('folds growl sub frequencies into the chest-hit octave', () => {
@@ -139,11 +196,39 @@ describe('producer tool DSP logic', () => {
     expect(decodeWavHeader(wav)).toEqual({ sampleRate: 48000, channels: 2, frames: 12 });
   });
 
+  it('clamps Flip Prep section selection to the configured CPU-safe duration', () => {
+    expect(clampFlipPrepClipSelection(240, 12, 120, 45)).toEqual({
+      startSeconds: 12,
+      durationSeconds: 45,
+      wasAutoTrimmed: true
+    });
+    expect(clampFlipPrepClipSelection(30, 25, 20, 60)).toEqual({
+      startSeconds: 25,
+      durationSeconds: 5,
+      wasAutoTrimmed: true
+    });
+  });
+
+  it('trims Flip Prep clips without changing sample rate or channel count', () => {
+    const rendered = trimChannelBuffer({ sampleRate: 10, channels: [new Float32Array([0, 1, 2, 3, 4, 5, 6, 7])] }, 0.2, 0.3);
+
+    expect(rendered.sampleRate).toBe(10);
+    expect(rendered.channels).toHaveLength(1);
+    expect(Array.from(rendered.channels[0])).toEqual([2, 3, 4]);
+  });
+
+  it('estimates Flip Prep CPU time from the selected clip duration', () => {
+    expect(estimateFlipPrepTotalSeconds(45)).toBe(900);
+    expect(estimateFlipPrepTotalSeconds(2)).toBe(120);
+  });
+
   it('calculates tempo-synced LFO rates', () => {
     expect(lfoSyncHz(120, '1/4')).toBeCloseTo(2);
     expect(lfoSyncHz(120, '1/8')).toBeCloseTo(4);
     expect(lfoSyncHz(120, '1/16')).toBeCloseTo(8);
     expect(lfoSyncHz(120, '1/8.')).toBeCloseTo(2.666, 2);
+    expect(lfoSyncHz(120, '1/8T')).toBeCloseTo(6);
+    expect(lfoSyncHz(120, '1/16T')).toBeCloseTo(12);
   });
 
   it('resolves ADSR envelope stage timing', () => {

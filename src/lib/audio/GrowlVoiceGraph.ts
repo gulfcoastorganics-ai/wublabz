@@ -2,14 +2,25 @@ import { createDriveCurve, driveMakeupGain, resolveAdsrStageTimes, resolveDubste
 
 export interface GrowlVoice {
   start: (time?: number) => void;
-  stop: (time?: number) => void;
+  stop: (time?: number, releaseSeconds?: number) => void;
+  updatePreset: (preset: GrowlPreset, engineBpm?: number, time?: number) => void;
+  glideTo: (frequencyHz: number, time?: number, glideSeconds?: number) => void;
   output: any;
 }
 
-export function createGrowlVoice(context: any, preset: GrowlPreset, frequencyHz: number, destination: any, engineBpm?: number): GrowlVoice {
+export function createGrowlVoice(
+  context: any,
+  preset: GrowlPreset,
+  frequencyHz: number,
+  destination: any,
+  engineBpm?: number,
+  options: { startFrequencyHz?: number } = {}
+): GrowlVoice {
   const unisonVoices = clamp(Math.round(preset.unisonVoices ?? 1), 1, 4);
   const detuneSpreadCents = Math.max(0, preset.detuneSpreadCents ?? 0);
   const oscillators: any[] = [];
+  let targetFrequencyHz = frequencyHz;
+  let currentFrequencyHz = options.startFrequencyHz ?? frequencyHz;
   const sub = context.createOscillator();
   const carrierMix = context.createGain();
   const subGain = context.createGain();
@@ -39,8 +50,8 @@ export function createGrowlVoice(context: any, preset: GrowlPreset, frequencyHz:
     const osc2 = context.createOscillator();
     osc1.type = preset.osc1;
     osc2.type = preset.osc2;
-    osc1.frequency.value = frequencyHz;
-    osc2.frequency.value = frequencyHz;
+    osc1.frequency.value = currentFrequencyHz;
+    osc2.frequency.value = currentFrequencyHz;
     osc1.detune.value = position * detuneSpreadCents * 0.5;
     osc2.detune.value = (preset.detuneCents ?? 0) - position * detuneSpreadCents * 0.5;
     voiceGain.gain.value = 0.56 / Math.sqrt(unisonVoices);
@@ -58,7 +69,7 @@ export function createGrowlVoice(context: any, preset: GrowlPreset, frequencyHz:
   }
 
   sub.type = 'sine';
-  const subFrequency = resolveDubstepSubFrequency(frequencyHz);
+  const subFrequency = resolveDubstepSubFrequency(currentFrequencyHz);
   sub.frequency.value = subFrequency;
 
   carrierMix.gain.value = 0.96;
@@ -94,9 +105,9 @@ export function createGrowlVoice(context: any, preset: GrowlPreset, frequencyHz:
   lfo.type = toOscillatorLfoType(preset.lfoShape);
   lfo.frequency.value = resolveLfoHz(preset, engineBpm);
   lfoDepth.gain.value = resolveTrackedCutoff(preset, frequencyHz) * (preset.lfoDepth ?? 0);
-  secondLfo.type = 'triangle';
+  secondLfo.type = preset.lfoShape === 'talk' ? 'square' : 'triangle';
   secondLfo.frequency.value = Math.max(0.01, preset.secondLfoHz ?? 0.35);
-  secondLfoDepth.gain.value = resolveTrackedCutoff(preset, frequencyHz) * (preset.secondLfoDepth ?? 0);
+  secondLfoDepth.gain.value = resolveTrackedCutoff(preset, frequencyHz) * resolveSecondLfoDepth(preset);
 
   sub.connect(subGain);
   subGain.connect(subLowpass);
@@ -123,13 +134,34 @@ export function createGrowlVoice(context: any, preset: GrowlPreset, frequencyHz:
   postFilter.connect(amp);
   amp.connect(destination);
 
+  const applyLivePreset = (nextPreset: GrowlPreset, nextEngineBpm?: number, time = context.currentTime) => {
+    const trackedCutoff = resolveTrackedCutoff(nextPreset, targetFrequencyHz);
+    const safeTime = Math.max(0, time);
+    lfo.type = toOscillatorLfoType(nextPreset.lfoShape);
+    secondLfo.type = nextPreset.lfoShape === 'talk' ? 'square' : 'triangle';
+    setTarget(lfo.frequency, resolveLfoHz(nextPreset, nextEngineBpm), safeTime, 0.015);
+    setTarget(lfoDepth.gain, trackedCutoff * (nextPreset.lfoDepth ?? 0), safeTime, 0.015);
+    setTarget(secondLfo.frequency, Math.max(0.01, nextPreset.secondLfoHz ?? 0.35), safeTime, 0.02);
+    setTarget(secondLfoDepth.gain, trackedCutoff * resolveSecondLfoDepth(nextPreset), safeTime, 0.02);
+    setTarget(filter.Q, clamp(nextPreset.resonance ?? 10, 0.5, 14), safeTime, 0.02);
+    setTarget(filter.frequency, Math.max(60, trackedCutoff * (nextPreset.filterSustain ?? 0.35)), safeTime, 0.04);
+    setTarget(formant.frequency, Math.min(5200, Math.max(180, trackedCutoff * 2.65)), safeTime, 0.03);
+    setTarget(bodyBand.frequency, clamp(targetFrequencyHz * 2, 115, 260), safeTime, 0.03);
+    setTarget(bodyLevel.gain, 0.48, safeTime, 0.03);
+    setTarget(subGain.gain, clamp(nextPreset.subLevel ?? 0.85, 0, 1) * 1.08, safeTime, 0.02);
+    setTarget(highLevel.gain, Math.max(0.42, 1 - (nextPreset.subLevel ?? 0.85) * 0.12), safeTime, 0.02);
+    drive.curve = createDriveCurve(nextPreset.driveType, nextPreset.drive, 2048);
+    setTarget(driveMakeup.gain, Math.max(0.58, driveMakeupGain(nextPreset.driveType, nextPreset.drive)), safeTime, 0.02);
+  };
+
   return {
     output: amp,
+    updatePreset: applyLivePreset,
     start(time = context.currentTime) {
       const peak = 0.31;
       const ampTimes = resolveAdsrStageTimes(time, preset.attack, preset.decay, preset.release);
       const filterTimes = resolveAdsrStageTimes(time, preset.filterAttack, preset.filterDecay, preset.filterRelease);
-      const baseCutoff = resolveTrackedCutoff(preset, frequencyHz);
+      const baseCutoff = resolveTrackedCutoff(preset, targetFrequencyHz);
       const envelopeAmount = clamp(preset.filterEnvelopeAmount ?? 0.78, 0, 1);
       const startCutoff = Math.max(60, baseCutoff * (0.38 + envelopeAmount * 0.12));
       const wowCutoff = Math.min(12000, baseCutoff * (1.2 + envelopeAmount * 1.55));
@@ -155,11 +187,16 @@ export function createGrowlVoice(context: any, preset: GrowlPreset, frequencyHz:
       sub.start(time);
       lfo.start(time);
       secondLfo.start(time);
+      if (currentFrequencyHz !== targetFrequencyHz) {
+        glideToFrequency(targetFrequencyHz, time, preset.glideSeconds ?? 0);
+      }
     },
-    stop(time = context.currentTime) {
-      const releaseEnd = time + preset.release;
-      const filterReleaseEnd = time + preset.filterRelease;
-      const baseCutoff = resolveTrackedCutoff(preset, frequencyHz);
+    stop(time = context.currentTime, releaseSeconds?: number) {
+      const ampRelease = releaseSeconds ?? preset.release;
+      const filterRelease = releaseSeconds ?? preset.filterRelease;
+      const releaseEnd = time + ampRelease;
+      const filterReleaseEnd = time + filterRelease;
+      const baseCutoff = resolveTrackedCutoff(preset, targetFrequencyHz);
       amp.gain.cancelScheduledValues(time);
       amp.gain.setValueAtTime(Math.max(0.0001, amp.gain.value), time);
       amp.gain.linearRampToValueAtTime(0.0001, releaseEnd);
@@ -173,8 +210,23 @@ export function createGrowlVoice(context: any, preset: GrowlPreset, frequencyHz:
           // Already stopped.
         }
       }
-    }
+    },
+    glideTo: glideToFrequency
   };
+
+  function glideToFrequency(nextFrequencyHz: number, time = context.currentTime, glideSeconds = preset.glideSeconds ?? 0): void {
+    targetFrequencyHz = Math.max(1, nextFrequencyHz);
+    const safeTime = Math.max(0, time);
+    const endTime = safeTime + Math.max(0, glideSeconds);
+    for (const node of oscillators) {
+      setRamp(node.frequency, currentFrequencyHz, targetFrequencyHz, safeTime, endTime);
+    }
+    const nextSubFrequency = resolveDubstepSubFrequency(targetFrequencyHz);
+    setRamp(sub.frequency, resolveDubstepSubFrequency(currentFrequencyHz), nextSubFrequency, safeTime, endTime);
+    setTarget(subLowpass.frequency, clamp(nextSubFrequency * 2.15, 86, 145), safeTime, Math.max(0.015, glideSeconds * 0.4));
+    setTarget(bodyBand.frequency, clamp(targetFrequencyHz * 2, 115, 260), safeTime, Math.max(0.015, glideSeconds * 0.4));
+    currentFrequencyHz = targetFrequencyHz;
+  }
 }
 
 function resolveTrackedCutoff(preset: GrowlPreset, frequencyHz: number): number {
@@ -186,10 +238,43 @@ function resolveTrackedCutoff(preset: GrowlPreset, frequencyHz: number): number 
 
 function toOscillatorLfoType(shape: LfoShape): 'sine' | 'triangle' | 'square' | 'sawtooth' {
   if (shape === 'tri') return 'triangle';
+  if (shape === 'pulse') return 'square';
+  if (shape === 'talk') return 'sawtooth';
   if (shape === 'saw' || shape === 'ramp') return 'sawtooth';
   return shape;
 }
 
+function resolveSecondLfoDepth(preset: GrowlPreset): number {
+  const base = preset.secondLfoDepth ?? 0;
+  return preset.lfoShape === 'talk' ? Math.max(base, 0.28) : base;
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
+}
+
+function setTarget(param: any, value: number, time: number, constant: number): void {
+  if (typeof param?.setTargetAtTime === 'function') {
+    param.setTargetAtTime(value, time, constant);
+    return;
+  }
+  if (param && 'value' in param) {
+    param.value = value;
+  }
+}
+
+function setRamp(param: any, fromValue: number, toValue: number, startTime: number, endTime: number): void {
+  if (typeof param?.cancelScheduledValues === 'function') {
+    param.cancelScheduledValues(startTime);
+  }
+  if (typeof param?.setValueAtTime === 'function') {
+    param.setValueAtTime(fromValue, startTime);
+  } else if (param && 'value' in param) {
+    param.value = fromValue;
+  }
+  if (endTime > startTime && typeof param?.linearRampToValueAtTime === 'function') {
+    param.linearRampToValueAtTime(toValue, endTime);
+  } else if (param && 'value' in param) {
+    param.value = toValue;
+  }
 }

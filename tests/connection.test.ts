@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { getWubLabzHttpUrl, getWubLabzWsUrl, isMockMode } from '../src/wubpad-integration/env.js';
+import { getFlipPrepApiUrl, getFlipPrepMaxClipSeconds, getWubLabzHttpUrl, getWubLabzWsUrl, isMockMode } from '../src/wubpad-integration/env.js';
 
 describe('WubPad Integration Env', () => {
   it('should return default URLs when environment is missing', () => {
@@ -7,9 +7,11 @@ describe('WubPad Integration Env', () => {
     vi.stubGlobal('window', undefined);
     delete process.env.VITE_WUBLABZ_HTTP_URL;
     delete process.env.VITE_WUBLABZ_WS_URL;
+    delete process.env.VITE_FLIP_PREP_MAX_CLIP_SECONDS;
 
     expect(getWubLabzHttpUrl()).toBe('http://localhost:3001');
     expect(getWubLabzWsUrl()).toBe('ws://localhost:3001');
+    expect(getFlipPrepMaxClipSeconds()).toBe(60);
   });
 
   it('should derive URLs from window.location when possible', () => {
@@ -57,6 +59,25 @@ describe('WubPad Integration Env', () => {
 
     expect(getWubLabzHttpUrl()).toBe('http://localhost:3001');
     expect(getWubLabzWsUrl()).toBe('ws://localhost:3001');
+  });
+
+  it('resolves browser Flip Prep calls to the WubLabz API instead of the worker port', () => {
+    vi.stubGlobal('window', {
+      location: {
+        protocol: 'http:',
+        hostname: 'localhost',
+      }
+    });
+    process.env.VITE_FLIP_PREP_API_URL = 'http://127.0.0.1:3002';
+
+    expect(getFlipPrepApiUrl()).toBe('http://localhost:3001');
+  });
+
+  it('allows the Flip Prep max clip duration to be configured', () => {
+    vi.stubGlobal('window', undefined);
+    process.env.VITE_FLIP_PREP_MAX_CLIP_SECONDS = '45';
+
+    expect(getFlipPrepMaxClipSeconds()).toBe(45);
   });
 
   it('does not require process global for mock mode checks', () => {

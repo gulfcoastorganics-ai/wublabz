@@ -24,6 +24,16 @@ export const getWubLabzHttpUrl = () => {
   return 'http://localhost:3001';
 };
 
+export const getFlipPrepApiUrl = () => {
+  return getWubLabzHttpUrl();
+};
+
+export const getFlipPrepMaxClipSeconds = () => {
+  const configured = getImportMetaEnv()?.VITE_FLIP_PREP_MAX_CLIP_SECONDS ?? getProcessEnv()?.VITE_FLIP_PREP_MAX_CLIP_SECONDS ?? getProcessEnv()?.FLIP_PREP_MAX_CLIP_SECONDS;
+  const parsed = Number(configured);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 60;
+};
+
 export const getWubLabzWsUrl = () => {
   const importMetaEnv = getImportMetaEnv();
   if (importMetaEnv?.VITE_WUBLABZ_WS_URL) {

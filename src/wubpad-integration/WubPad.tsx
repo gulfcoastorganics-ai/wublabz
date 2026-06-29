@@ -119,11 +119,15 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: '44px'
+    minHeight: '44px',
+    transition: 'background 120ms ease, border-color 120ms ease, transform 80ms ease, opacity 120ms ease'
   },
-  primaryButton: { borderColor: COLORS.primary, color: COLORS.primary },
-  dangerButton: { backgroundColor: COLORS.danger, borderColor: COLORS.danger, color: '#fff' },
+  primaryButton: { border: `1px solid ${COLORS.primary}`, color: COLORS.primary },
+  dangerButton: { backgroundColor: COLORS.danger, border: `1px solid ${COLORS.danger}`, color: '#fff' },
   activeButton: { backgroundColor: COLORS.primary, color: COLORS.bg },
+  buttonHover: { backgroundColor: '#252525', border: '1px solid #666666' },
+  buttonActive: { transform: 'translateY(1px)', backgroundColor: '#111111' },
+  buttonDisabled: { opacity: 0.45, cursor: 'not-allowed', transform: 'none' },
   slider: { width: '100%', accentColor: COLORS.primary, margin: '0.5rem 0' },
   statusIndicator: { width: '8px', height: '8px', borderRadius: '50%', marginRight: '0.5rem', display: 'inline-block' },
   connectionPanel: {
@@ -169,6 +173,54 @@ const Meter: React.FC<{ value: number }> = ({ value }) => {
     </div>
   );
 };
+
+type WubButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  variant?: 'default' | 'primary' | 'danger';
+};
+
+function WubButton({ variant = 'default', disabled, style, children, onMouseEnter, onMouseLeave, onMouseDown, onMouseUp, onBlur, ...props }: WubButtonProps) {
+  const [hovered, setHovered] = useState(false);
+  const [pressed, setPressed] = useState(false);
+  const base = variant === 'primary' ? styles.primaryButton : variant === 'danger' ? styles.dangerButton : {};
+  return (
+    <button
+      type="button"
+      {...props}
+      disabled={disabled}
+      style={{
+        ...styles.button,
+        ...base,
+        ...(hovered && !disabled ? styles.buttonHover : {}),
+        ...(pressed && !disabled ? styles.buttonActive : {}),
+        ...(disabled ? styles.buttonDisabled : {}),
+        ...style
+      }}
+      onMouseEnter={(event) => {
+        setHovered(true);
+        onMouseEnter?.(event);
+      }}
+      onMouseLeave={(event) => {
+        setHovered(false);
+        setPressed(false);
+        onMouseLeave?.(event);
+      }}
+      onMouseDown={(event) => {
+        setPressed(true);
+        onMouseDown?.(event);
+      }}
+      onMouseUp={(event) => {
+        setPressed(false);
+        onMouseUp?.(event);
+      }}
+      onBlur={(event) => {
+        setPressed(false);
+        onBlur?.(event);
+      }}
+    >
+      {children}
+    </button>
+  );
+}
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === 'string');
@@ -585,13 +637,14 @@ export const WubPad: React.FC = () => {
           </div>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem' }}>
-          <button style={{ ...styles.button, padding: '0.5rem' }} onClick={() => setShowSettings(!showSettings)}>SETTINGS</button>
-          <button 
-            style={{ ...styles.button, ...styles.dangerButton, padding: '0.5rem' }} 
+          <WubButton style={{ padding: '0.5rem' }} onClick={() => setShowSettings(!showSettings)}>SETTINGS</WubButton>
+          <WubButton 
+            variant="danger"
+            style={{ padding: '0.5rem' }} 
             onClick={() => handleIntent('EMERGENCY_STOP', {}, true)}
           >
             E-STOP
-          </button>
+          </WubButton>
         </div>
       </header>
 
@@ -602,14 +655,15 @@ export const WubPad: React.FC = () => {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             {status === 'tripped' && (
-                <button 
-                    style={{ ...styles.button, padding: '0.35rem 0.5rem', fontSize: '0.7rem', borderColor: COLORS.primary, color: COLORS.primary }}
+                <WubButton 
+                    variant="primary"
+                    style={{ padding: '0.35rem 0.5rem', fontSize: '0.7rem' }}
                     onClick={resetCircuitBreaker}
                 >
                     RETRY
-                </button>
+                </WubButton>
             )}
-            <div style={{ ...styles.connectionBadge, color: getStatusColor(), borderColor: getStatusColor() }}>
+            <div style={{ ...styles.connectionBadge, color: getStatusColor(), border: `1px solid ${getStatusColor()}` }}>
                 {connectionStatus}
             </div>
         </div>
@@ -628,7 +682,7 @@ export const WubPad: React.FC = () => {
                     onChange={(e) => setWsUrl(e.target.value)}
                     placeholder="ws://ip:port"
                 />
-                <button style={{ ...styles.button, width: '100%', marginTop: '0.5rem' }} onClick={() => connect()}>CONNECT</button>
+                <WubButton style={{ width: '100%', marginTop: '0.5rem' }} onClick={() => connect()}>CONNECT</WubButton>
             </div>
             {urlHistory.length > 0 && (
                 <div style={{ marginBottom: '1rem' }}>
@@ -653,7 +707,7 @@ export const WubPad: React.FC = () => {
                 Enable Confirmations
             </label>
             <div style={{ ...styles.sectionTitle, marginTop: '1rem' }}>MIDI Mapping</div>
-            <button style={{ ...styles.button, width: '100%', fontSize: '0.75rem' }} onClick={resetMidiMappings}>RESET MAPPINGS</button>
+            <WubButton style={{ width: '100%', fontSize: '0.75rem' }} onClick={resetMidiMappings}>RESET MAPPINGS</WubButton>
         </section>
       )}
 
@@ -664,9 +718,9 @@ export const WubPad: React.FC = () => {
             <span>{transportState}</span>
         </div>
         <div style={{ ...styles.grid, gridTemplateColumns: '1fr 1fr 1fr' }}>
-          <button style={styles.button} onClick={() => handleIntent('TRANSPORT_PLAY')}>PLAY</button>
-          <button style={styles.button} onClick={() => handleIntent('TRANSPORT_PAUSE')}>PAUSE</button>
-          <button style={styles.button} onClick={() => handleIntent('TRANSPORT_STOP')}>STOP</button>
+          <WubButton onClick={() => handleIntent('TRANSPORT_PLAY')}>PLAY</WubButton>
+          <WubButton onClick={() => handleIntent('TRANSPORT_PAUSE')}>PAUSE</WubButton>
+          <WubButton onClick={() => handleIntent('TRANSPORT_STOP')}>STOP</WubButton>
         </div>
         <div style={{ marginTop: '1rem' }}>
           <div style={{ fontSize: '0.65rem', color: COLORS.textMuted, marginBottom: '0.25rem' }}>SEEK / SCRUB</div>
@@ -697,18 +751,18 @@ export const WubPad: React.FC = () => {
                 value={getFiniteNumber(engineDiagnostics?.busLevels?.[`${stem.bus}_gain`], 0.85)} // Assuming gain feedback exists
                 onChange={(e) => handleIntent('STEM_GAIN', { stemId: stem.bus, value: parseFloat(e.target.value) })}
               />
-              <button 
+              <WubButton 
                 style={{ ...styles.button, fontSize: '0.7rem', padding: '0.25rem' }} 
                 onClick={() => handleIntent('STEM_MUTE', { stemId: stem.bus })}
               >
                 MUTE
-              </button>
-              <button 
+              </WubButton>
+              <WubButton 
                 style={{ ...styles.button, fontSize: '0.7rem', padding: '0.25rem' }} 
                 onClick={() => handleIntent('STEM_SOLO', { stemId: stem.bus })}
               >
                 SOLO
-              </button>
+              </WubButton>
             </div>
           ))}
         </div>
@@ -722,9 +776,10 @@ export const WubPad: React.FC = () => {
         </div>
         <div style={{ ...styles.grid, gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
           {DEFAULT_MACROS.map(macro => (
-            <button 
+            <WubButton 
               key={macro.id} 
-              style={{ ...styles.button, ...styles.primaryButton, height: '60px', position: 'relative' }}
+              variant="primary"
+              style={{ height: '60px', position: 'relative' }}
               onClick={() => handleIntent('MACRO_TRIGGER', { macroId: macro.id })}
               onContextMenu={(e) => { e.preventDefault(); setLearningTarget(macro); }}
             >
@@ -732,7 +787,7 @@ export const WubPad: React.FC = () => {
               {hasMidiMappingForMacro(midiMappings, macro.id) && (
                   <div style={{ position: 'absolute', top: 2, right: 4, fontSize: '0.5rem', color: COLORS.textMuted }}>MIDI</div>
               )}
-            </button>
+            </WubButton>
           ))}
         </div>
       </section>
@@ -745,18 +800,17 @@ export const WubPad: React.FC = () => {
         </div>
         <div style={{ overflowX: 'auto', display: 'flex', gap: '0.5rem', paddingBottom: '0.5rem' }}>
           {DEFAULT_SCENES.map(scene => (
-            <button 
+            <WubButton 
                 key={scene} 
                 style={{ 
-                    ...styles.button, 
                     minWidth: '100px',
-                    borderColor: currentScene === scene ? COLORS.primary : COLORS.border
+                    border: `1px solid ${currentScene === scene ? COLORS.primary : COLORS.border}`
                 }}
                 onClick={() => handleIntent('SCENE_TRIGGER', { sceneId: scene })}
                 onContextMenu={(e) => { e.preventDefault(); setLearningTarget({ id: `SCENE_${scene}`, label: scene }); }}
             >
                 {scene}
-            </button>
+            </WubButton>
           ))}
         </div>
       </section>
@@ -780,12 +834,13 @@ export const WubPad: React.FC = () => {
             <div style={{ color: COLORS.danger, marginTop: '0.5rem', borderTop: `1px solid ${COLORS.border}`, paddingTop: '0.5rem' }}>
                 <div style={{ fontWeight: 'bold' }}>Circuit Breaker Tripped</div>
                 <div style={{ fontSize: '0.75rem', marginTop: '0.2rem' }}>Too many failed connection attempts. Please check if WubLabz is running and click RETRY.</div>
-                <button 
-                    style={{ ...styles.button, width: '100%', marginTop: '0.75rem', backgroundColor: COLORS.primary, color: COLORS.bg }}
+                <WubButton 
+                    variant="primary"
+                    style={{ width: '100%', marginTop: '0.75rem', backgroundColor: COLORS.primary, color: COLORS.bg }}
                     onClick={resetCircuitBreaker}
                 >
                     RESET & RETRY CONNECTION
-                </button>
+                </WubButton>
             </div>
           )}
           {lastError && status !== 'tripped' && (

@@ -14,8 +14,8 @@ import {
   type RemixTrackType
 } from '../lib/producer-tools/arranger';
 import { WubLabzEngine } from '../lib/WubLabzEngine';
-import { getWubLabzHttpUrl } from '../wubpad-integration/env';
-import { styles, toArrayBuffer, ToolPanel } from './SampleManglerView';
+import { getFlipPrepApiUrl } from '../wubpad-integration/env';
+import { ActionButton, StatusMessage, styles, toArrayBuffer, ToolPanel } from './SampleManglerView';
 
 const TRACK_COLORS: Record<RemixTrackType, string> = {
   acapella: '#ff5cc8',
@@ -31,17 +31,24 @@ export function RemixToDubstepView() {
   const [seed, setSeed] = useState('dubstep-skeleton');
   const [keyOverride, setKeyOverride] = useState('');
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const [exporting, setExporting] = useState('');
+  const [playing, setPlaying] = useState(false);
   const activeSources = useRef<any[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const client = useMemo(() => {
     const offline = (import.meta as any).env?.VITE_FLIP_PREP_OFFLINE === 'true';
-    const baseUrl = (import.meta as any).env?.VITE_FLIP_PREP_API_URL ?? getWubLabzHttpUrl();
+    const baseUrl = getFlipPrepApiUrl();
     return offline ? new OfflineFlipPrepClient() : new HttpFlipPrepClient(baseUrl);
   }, []);
 
   async function upload(file?: File) {
     if (!file) return;
     setError('');
+    setSuccess('');
     setArrangement(null);
+    setUploading(true);
     try {
       let current = await client.createJob(file);
       setJob(current);
@@ -60,14 +67,18 @@ export function RemixToDubstepView() {
       });
       setArrangement(next);
       setKeyOverride(next.keyOverride ?? next.detectedKey);
+      setSuccess('Remix skeleton generated. Playback and exports are ready.');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Remix arrangement failed');
+      setError(formatFlipPrepUiError(err, client.baseUrl));
+    } finally {
+      setUploading(false);
     }
   }
 
   function regenerate(type: RemixTrackType) {
     if (!arrangement) return;
     setArrangement(regenerateArrangementElement(arrangement, type, `${seed}:${type}:${Date.now()}`));
+    setSuccess(`Regenerated ${type}.`);
   }
 
   function toggleTrack(trackId: string, field: 'muted' | 'solo') {
@@ -96,6 +107,7 @@ export function RemixToDubstepView() {
   function applyKeyOverride() {
     if (!job?.result) return;
     setArrangement(generateRemixArrangement({ flipPrep: job.result, seed, keyOverride: keyOverride || undefined }));
+    setSuccess('Applied key override.');
   }
 
   function play() {
@@ -109,7 +121,9 @@ export function RemixToDubstepView() {
     source.buffer = fromChannelBuffer(context, rendered);
     source.connect(getProducerAnalyser());
     source.start(now);
+    source.onended = () => setPlaying(false);
     activeSources.current.push(source);
+    setPlaying(true);
 
     const bassTrack = arrangement.tracks.find((track) => track.type === 'bass' && !track.muted);
     for (const clip of bassTrack?.clips ?? []) {
@@ -131,18 +145,31 @@ export function RemixToDubstepView() {
       source.disconnect?.();
     }
     activeSources.current = [];
+    setPlaying(false);
   }
 
   function exportStem(type: RemixTrackType) {
     if (!arrangement) return;
-    const wav = renderBufferToWav(`wublabz-${type}-skeleton.wav`, renderArrangementGuideStem(arrangement, type));
-    downloadBytes(wav.bytes, wav.fileName, wav.mimeType);
+    setExporting(type);
+    try {
+      const wav = renderBufferToWav(`wublabz-${type}-skeleton.wav`, renderArrangementGuideStem(arrangement, type));
+      downloadBytes(wav.bytes, wav.fileName, wav.mimeType);
+      setSuccess(`Exported ${wav.fileName}.`);
+    } finally {
+      setExporting('');
+    }
   }
 
   function exportMaster() {
     if (!arrangement) return;
-    const wav = renderBufferToWav('wublabz-dubstep-skeleton-master.wav', renderArrangementGuideMaster(arrangement));
-    downloadBytes(wav.bytes, wav.fileName, wav.mimeType);
+    setExporting('master');
+    try {
+      const wav = renderBufferToWav('wublabz-dubstep-skeleton-master.wav', renderArrangementGuideMaster(arrangement));
+      downloadBytes(wav.bytes, wav.fileName, wav.mimeType);
+      setSuccess(`Exported ${wav.fileName}.`);
+    } finally {
+      setExporting('');
+    }
   }
 
   return (
@@ -150,13 +177,14 @@ export function RemixToDubstepView() {
       <p style={{ color: '#d8d8d8', lineHeight: 1.5 }}>
         This creates an editable dubstep skeleton to finish in your DAW or here. It is not a finished auto-track.
       </p>
-      <label style={styles.dropZone}>
-        <input type="file" accept="audio/*" onChange={(event) => void upload(event.target.files?.[0])} style={{ display: 'none' }} />
+      <div style={styles.dropZone}>
+        <input ref={fileInputRef} type="file" accept="audio/*" disabled={uploading} onChange={(event) => void upload(event.target.files?.[0])} style={{ display: 'none' }} />
         <div style={{ padding: '1rem' }}>
-          <strong>Upload a song</strong>
+          <strong>{uploading ? 'Generating remix skeleton...' : 'Upload a song'}</strong>
           <p style={{ color: '#bbb', lineHeight: 1.5 }}>Flip Prep supplies stems, key/BPM, and the 140 half-time acapella. The arranger builds sections, drums, growls, and transition fills from engine rules.</p>
+          <ActionButton variant="primary" loading={uploading} style={{ marginTop: '0.75rem' }} onClick={() => fileInputRef.current?.click()}>Choose Audio</ActionButton>
         </div>
-      </label>
+      </div>
 
       <div style={styles.grid}>
         <label style={styles.control}>
@@ -167,7 +195,7 @@ export function RemixToDubstepView() {
           <span>KEY OVERRIDE</span>
           <input value={keyOverride} onChange={(event) => setKeyOverride(event.target.value)} style={styles.input} placeholder="A minor" />
         </label>
-        <button style={styles.button} disabled={!job?.result} onClick={applyKeyOverride}>Apply Key</button>
+        <ActionButton disabled={!job?.result || uploading} onClick={applyKeyOverride}>Apply Key</ActionButton>
       </div>
 
       {job && (
@@ -190,24 +218,25 @@ export function RemixToDubstepView() {
           </div>
           <Timeline arrangement={arrangement} onMute={(trackId) => toggleTrack(trackId, 'muted')} onSolo={(trackId) => toggleTrack(trackId, 'solo')} />
           <div style={styles.actions}>
-            <button style={styles.primaryButton} onClick={play}>Play Skeleton</button>
-            <button style={styles.button} onClick={stop}>Stop</button>
-            <button style={styles.button} onClick={() => regenerate('drums')}>Regenerate Drums</button>
-            <button style={styles.button} onClick={() => regenerate('bass')}>Randomize Growl</button>
-            <button style={styles.button} onClick={() => regenerate('fills')}>Regenerate Fills</button>
-            <button style={styles.button} onClick={() => shiftAcapella(-1)}>Acapella -1 Bar</button>
-            <button style={styles.button} onClick={() => shiftAcapella(1)}>Acapella +1 Bar</button>
+            <ActionButton variant="primary" loading={playing} onClick={play}>Play Skeleton</ActionButton>
+            <ActionButton onClick={stop}>Stop</ActionButton>
+            <ActionButton onClick={() => regenerate('drums')}>Regenerate Drums</ActionButton>
+            <ActionButton onClick={() => regenerate('bass')}>Randomize Growl</ActionButton>
+            <ActionButton onClick={() => regenerate('fills')}>Regenerate Fills</ActionButton>
+            <ActionButton onClick={() => shiftAcapella(-1)}>Acapella -1 Bar</ActionButton>
+            <ActionButton onClick={() => shiftAcapella(1)}>Acapella +1 Bar</ActionButton>
           </div>
           <div style={styles.actions}>
-            {arrangement.tracks.map((track) => <button key={track.id} style={styles.button} onClick={() => exportStem(track.type)}>Export {track.name}</button>)}
-            <button style={styles.primaryButton} onClick={exportMaster}>Export Master</button>
+            {arrangement.tracks.map((track) => <ActionButton key={track.id} loading={exporting === track.type} onClick={() => exportStem(track.type)}>Export {track.name}</ActionButton>)}
+            <ActionButton variant="primary" loading={exporting === 'master'} onClick={exportMaster}>Export Master</ActionButton>
           </div>
           <div style={styles.actions}>
             <a href={resolveFlipPrepAssetUrl(client.baseUrl, arrangement.flipPrep.acapella140Url)} style={styles.button}>Download Flip Prep Acapella</a>
           </div>
         </>
       )}
-      {(error || job?.error) && <p style={{ color: '#ff8c8c' }}>{error || job?.error}</p>}
+      {success && <StatusMessage tone="success">{success}</StatusMessage>}
+      {(error || job?.error) && <StatusMessage tone="error">{error || job?.error}</StatusMessage>}
     </ToolPanel>
   );
 }
@@ -229,8 +258,8 @@ function Timeline({ arrangement, onMute, onSolo }: { arrangement: RemixArrangeme
           <div style={{ padding: '0.45rem', display: 'grid', gap: 4 }}>
             <strong style={{ color: TRACK_COLORS[track.type], fontSize: '0.78rem' }}>{track.name}</strong>
             <span>
-              <button style={miniButton(track.muted)} onClick={() => onMute(track.id)}>M</button>
-              <button style={miniButton(track.solo)} onClick={() => onSolo(track.id)}>S</button>
+              <ActionButton style={miniButton(track.muted)} onClick={() => onMute(track.id)}>M</ActionButton>
+              <ActionButton style={miniButton(track.solo)} onClick={() => onSolo(track.id)}>S</ActionButton>
             </span>
           </div>
           {track.clips.map((clip) => (
@@ -279,4 +308,12 @@ function downloadBytes(bytes: Uint8Array, fileName: string, mimeType: string) {
 
 function formatSeconds(seconds: number): string {
   return `${Math.max(0, Math.floor(seconds))}s`;
+}
+
+function formatFlipPrepUiError(error: unknown, baseUrl: string): string {
+  const message = error instanceof Error ? error.message : typeof error === 'string' ? error : 'Remix arrangement failed';
+  if (message.includes('Flip Prep worker is not reachable')) {
+    return `Flip Prep is not reachable through the WubLabz API at ${baseUrl}. The browser is using the app API proxy; confirm the server can reach the Flip Prep worker.`;
+  }
+  return message;
 }

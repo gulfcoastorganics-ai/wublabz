@@ -3,40 +3,83 @@ import { createGrowlVoice } from '../lib/audio/GrowlVoiceGraph';
 import { getProducerAnalyser, getProducerAudioContext, toChannelBuffer } from '../lib/audio/ProducerAudioEngine';
 import { renderBufferToWav } from '../lib/export/AudioRenderExport';
 import { saveProducerPreset, loadProducerPreset } from '../lib/persistence/ProducerPresetPersistence';
-import { DEFAULT_GROWL_PRESET, MAX_GROWL_VOICES, randomGrowlPreset, resolveLfoHz, type DriveType, type GrowlPreset, type LfoShape, type SyncDivision } from '../lib/producer-tools/synth';
+import { DEFAULT_GROWL_PRESET, MAX_GROWL_VOICES, STARTER_GROWL_PRESETS, normalizeGrowlPreset, randomGrowlPreset, resolveLfoHz, type DriveType, type GrowlPreset, type LfoShape, type SyncDivision } from '../lib/producer-tools/synth';
 import { WubLabzEngine } from '../lib/WubLabzEngine';
-import { styles, toArrayBuffer, ToolPanel } from './SampleManglerView';
+import { ActionButton, StatusMessage, styles, toArrayBuffer, ToolPanel } from './SampleManglerView';
 
 const PRESET_KEY = 'wublabz:bass-synth:preset';
 const NOTES = [
   ['A', 55], ['W', 58.27], ['S', 61.74], ['E', 65.41], ['D', 73.42], ['F', 82.41],
   ['T', 87.31], ['G', 98], ['Y', 103.83], ['H', 110], ['U', 116.54], ['J', 123.47]
 ] as const;
+const MAX_LATCHED_WOBBLES = 3;
+const DOUBLE_TAP_MS = 320;
+const QUICK_HIT_SECONDS = 0.18;
+
+type ActiveVoice = {
+  voice: ReturnType<typeof createGrowlVoice>;
+  latched: boolean;
+};
+
+type PressState = {
+  key: string;
+  freq: number;
+  startedAt: number;
+  latched: boolean;
+  timer: ReturnType<typeof setTimeout>;
+};
 
 export function BassSynthView() {
-  const [preset, setPreset] = useState<GrowlPreset>(() => loadProducerPreset(PRESET_KEY, DEFAULT_GROWL_PRESET));
+  const [preset, setPreset] = useState<GrowlPreset>(() => normalizeGrowlPreset(loadProducerPreset(PRESET_KEY, DEFAULT_GROWL_PRESET)));
+  const [latchThresholdMs, setLatchThresholdMs] = useState(300);
+  const [latchedNotes, setLatchedNotes] = useState<number[]>([]);
+  const [exporting, setExporting] = useState(false);
+  const [status, setStatus] = useState<{ tone: 'success' | 'error' | 'info'; message: string } | null>(null);
   const [engine] = useState(() => new WubLabzEngine());
-  const voicesRef = useRef(new Map<number, ReturnType<typeof createGrowlVoice>>());
+  const voicesRef = useRef(new Map<number, ActiveVoice>());
+  const pressesRef = useRef(new Map<string, PressState>());
+  const lastTapRef = useRef(new Map<string, number>());
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const presetRef = useRef(preset);
+  const activeCountRef = useRef(0);
+
+  presetRef.current = preset;
+  activeCountRef.current = voicesRef.current.size;
 
   useEffect(() => {
     engine.setBpm(preset.bpm);
+    updateRunningVoices(preset);
   }, [engine, preset.bpm]);
 
   useEffect(() => {
+    updateRunningVoices(preset);
+  }, [preset]);
+
+  useEffect(() => {
     const down = (event: KeyboardEvent) => {
+      if (isEditableTarget(event.target) || event.repeat) return;
       const note = NOTES.find(([key]) => key.toLowerCase() === event.key.toLowerCase());
-      if (note && !event.repeat) play(note[1]);
+      if (!note) return;
+      event.preventDefault();
+      beginPress(note[0], note[1]);
     };
     const up = (event: KeyboardEvent) => {
+      if (isEditableTarget(event.target)) return;
       const note = NOTES.find(([key]) => key.toLowerCase() === event.key.toLowerCase());
-      if (note) stop(note[1]);
+      if (!note) return;
+      event.preventDefault();
+      endPress(note[0]);
+    };
+    const blur = () => {
+      cancelPresses();
     };
     window.addEventListener('keydown', down);
     window.addEventListener('keyup', up);
+    window.addEventListener('blur', blur);
     return () => {
       window.removeEventListener('keydown', down);
       window.removeEventListener('keyup', up);
+      window.removeEventListener('blur', blur);
     };
   });
 
@@ -44,65 +87,189 @@ export function BassSynthView() {
     let frame = 0;
     const draw = () => {
       frame = requestAnimationFrame(draw);
-      drawSpectrum(canvasRef.current, getProducerAnalyser());
+      drawSpectrum(canvasRef.current, getProducerAnalyser(), presetRef.current, engine.getBpm(), activeCountRef.current > 0);
     };
     draw();
     return () => cancelAnimationFrame(frame);
   }, []);
 
   function patch(change: Partial<GrowlPreset>) {
-    setPreset((current) => ({ ...current, ...change }));
+    setPreset((current) => normalizeGrowlPreset({ ...current, ...change }));
   }
 
-  function play(freq: number) {
+  function updateRunningVoices(nextPreset: GrowlPreset) {
+    for (const active of voicesRef.current.values()) {
+      active.voice.updatePreset(nextPreset, engine.getBpm());
+    }
+  }
+
+  function startVoice(freq: number, latched: boolean) {
     stop(freq);
     const context = getProducerAudioContext();
-    const voice = createGrowlVoice(context, preset, freq, getProducerAnalyser(), engine.getBpm());
+    const previousLatchedFreq = latched ? latchedNotes.at(-1) : undefined;
+    const voice = createGrowlVoice(context, preset, freq, getProducerAnalyser(), engine.getBpm(), {
+      startFrequencyHz: previousLatchedFreq
+    });
     voice.start();
-    voicesRef.current.set(freq, voice);
+    voicesRef.current.set(freq, { voice, latched });
+    syncLatchedNotes();
+    limitVoices();
+  }
+
+  function beginPress(key: string, freq: number) {
+    if (pressesRef.current.has(key)) return;
+    const now = Date.now();
+    const lastTap = lastTapRef.current.get(key) ?? 0;
+    const active = voicesRef.current.get(freq);
+    lastTapRef.current.set(key, now);
+    if (active?.latched) {
+      if (now - lastTap <= DOUBLE_TAP_MS) {
+        stop(freq);
+      }
+      return;
+    }
+    if (now - lastTap <= DOUBLE_TAP_MS) {
+      stop(freq);
+      return;
+    }
+
+    startVoice(freq, false);
+    const press: PressState = {
+      key,
+      freq,
+      startedAt: now,
+      latched: false,
+      timer: setTimeout(() => latchNote(key, freq), latchThresholdMs)
+    };
+    pressesRef.current.set(key, press);
+  }
+
+  function endPress(key: string) {
+    const press = pressesRef.current.get(key);
+    if (!press) return;
+    clearTimeout(press.timer);
+    pressesRef.current.delete(key);
+    if (press.latched) return;
+    const heldMs = Date.now() - press.startedAt;
+    const releaseDelayMs = Math.max(0, QUICK_HIT_SECONDS * 1000 - heldMs);
+    setTimeout(() => {
+      if (!voicesRef.current.get(press.freq)?.latched) stop(press.freq);
+    }, releaseDelayMs);
+  }
+
+  function latchNote(key: string, freq: number) {
+    const press = pressesRef.current.get(key);
+    if (!press) return;
+    press.latched = true;
+    const previousLatchedFreq = latchedNotes.at(-1);
+    if (previousLatchedFreq && preset.glideSeconds > 0) {
+      stop(freq, 0.01);
+      const voice = createGrowlVoice(getProducerAudioContext(), preset, freq, getProducerAnalyser(), engine.getBpm(), {
+        startFrequencyHz: previousLatchedFreq
+      });
+      voice.start();
+      voicesRef.current.set(freq, { voice, latched: true });
+    } else {
+      voicesRef.current.set(freq, { voice: voicesRef.current.get(freq)?.voice ?? createAndStartVoice(freq), latched: true });
+    }
+    syncLatchedNotes();
+    limitVoices();
+  }
+
+  function createAndStartVoice(freq: number) {
+    const context = getProducerAudioContext();
+    const voice = createGrowlVoice(context, preset, freq, getProducerAnalyser(), engine.getBpm(), {
+      startFrequencyHz: latchedNotes.at(-1)
+    });
+    voice.start();
+    return voice;
+  }
+
+  function limitVoices() {
+    const latched = [...voicesRef.current.entries()].filter(([, active]) => active.latched);
+    while (latched.length > MAX_LATCHED_WOBBLES) {
+      const [oldestFreq] = latched.shift()!;
+      stop(oldestFreq);
+    }
     while (voicesRef.current.size > MAX_GROWL_VOICES) {
-      const oldest = voicesRef.current.keys().next().value;
+      const oldest = [...voicesRef.current.entries()].find(([, active]) => !active.latched)?.[0] ?? voicesRef.current.keys().next().value;
       if (typeof oldest === 'number') stop(oldest);
       else break;
     }
   }
 
-  function stop(freq?: number) {
+  function stop(freq?: number, releaseSeconds?: number) {
     if (freq === undefined) {
       for (const [activeFreq, voice] of voicesRef.current) {
-        voice.stop();
+        voice.voice.stop(undefined, releaseSeconds);
         voicesRef.current.delete(activeFreq);
       }
+      syncLatchedNotes();
       return;
     }
 
-    const voice = voicesRef.current.get(freq);
-    voice?.stop();
+    const active = voicesRef.current.get(freq);
+    active?.voice.stop(undefined, releaseSeconds);
     voicesRef.current.delete(freq);
+    syncLatchedNotes();
+  }
+
+  function cancelPresses() {
+    for (const press of pressesRef.current.values()) {
+      clearTimeout(press.timer);
+      if (!press.latched) stop(press.freq);
+    }
+    pressesRef.current.clear();
+  }
+
+  function panicStop() {
+    cancelPresses();
+    stop(undefined, 0.015);
+    setStatus({ tone: 'info', message: 'All latched notes stopped.' });
+  }
+
+  function syncLatchedNotes() {
+    setLatchedNotes([...voicesRef.current.entries()].filter(([, active]) => active.latched).map(([freq]) => freq));
   }
 
   async function exportOneShot() {
+    setExporting(true);
     const OfflineCtor = (globalThis as any).OfflineAudioContext;
-    const holdSeconds = 2;
-    const tailSeconds = Math.max(preset.release, preset.filterRelease) + 0.25;
-    const offline = new OfflineCtor(2, Math.ceil(44100 * (holdSeconds + tailSeconds)), 44100);
-    const voice = createGrowlVoice(offline, preset, 55, offline.destination, engine.getBpm());
-    voice.start(0);
-    voice.stop(holdSeconds);
-    const audioBuffer = await offline.startRendering();
-    const wav = renderBufferToWav('wublabz-growl.wav', toChannelBuffer(audioBuffer));
-    const url = URL.createObjectURL(new Blob([toArrayBuffer(wav.bytes)], { type: wav.mimeType }));
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = wav.fileName;
-    anchor.click();
-    URL.revokeObjectURL(url);
+    try {
+      const holdSeconds = 2;
+      const tailSeconds = Math.max(preset.release, preset.filterRelease) + 0.25;
+      const offline = new OfflineCtor(2, Math.ceil(44100 * (holdSeconds + tailSeconds)), 44100);
+      const voice = createGrowlVoice(offline, preset, 55, offline.destination, engine.getBpm());
+      voice.start(0);
+      voice.stop(holdSeconds);
+      const audioBuffer = await offline.startRendering();
+      const wav = renderBufferToWav('wublabz-growl.wav', toChannelBuffer(audioBuffer));
+      const url = URL.createObjectURL(new Blob([toArrayBuffer(wav.bytes)], { type: wav.mimeType }));
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = wav.fileName;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      setStatus({ tone: 'success', message: `Exported ${wav.fileName}` });
+    } catch (error) {
+      setStatus({ tone: 'error', message: error instanceof Error ? error.message : 'Export failed' });
+    } finally {
+      setExporting(false);
+    }
   }
 
   return (
     <ToolPanel title="Bass Synth" tone="#00cfff">
       <canvas ref={canvasRef} style={{ ...styles.waveform, height: 150, background: '#111', border: '1px solid #333', borderRadius: '4px' }} />
+      <div style={styles.actions}>
+        <ActionButton variant="danger" onClick={panicStop}>STOP ALL</ActionButton>
+        <span style={{ ...styles.control, minWidth: 150 }}>LFO HZ <strong>{resolveLfoHz(preset, engine.getBpm()).toFixed(2)}</strong></span>
+        <span style={{ ...styles.control, minWidth: 150 }}>LATCHED <strong>{latchedNotes.length}/{MAX_LATCHED_WOBBLES}</strong></span>
+      </div>
+
       <div style={styles.grid}>
+        <Range label="HOLD MS" value={latchThresholdMs} min={100} max={1000} step={50} onChange={(value) => setLatchThresholdMs(Math.round(value))} />
+        <Range label="GLIDE MS" value={(preset.glideSeconds ?? DEFAULT_GROWL_PRESET.glideSeconds) * 1000} min={0} max={350} step={5} onChange={(glideMs) => patch({ glideSeconds: glideMs / 1000 })} />
         <Range label="CUTOFF" value={preset.cutoffHz} min={120} max={2200} step={10} onChange={(cutoffHz) => patch({ cutoffHz })} />
         <Range label="RESONANCE" value={preset.resonance} min={1} max={30} step={1} onChange={(resonance) => patch({ resonance })} />
         <Range label="ENV AMT" value={preset.filterEnvelopeAmount ?? DEFAULT_GROWL_PRESET.filterEnvelopeAmount} min={0} max={1} step={0.01} onChange={(filterEnvelopeAmount) => patch({ filterEnvelopeAmount })} />
@@ -128,22 +295,66 @@ export function BassSynthView() {
       </div>
       <div style={styles.actions}>
         <Select label="MODE" value={preset.wobbleMode} values={['sync', 'free']} onChange={(wobbleMode) => patch({ wobbleMode })} />
-        <Select label="LFO" value={preset.lfoShape === 'saw' ? 'ramp' : preset.lfoShape} values={['sine', 'tri', 'square', 'ramp']} onChange={(lfoShape) => patch({ lfoShape })} />
-        <Select label="SYNC" value={preset.syncDivision} values={['1/4', '1/8', '1/8.', '1/16']} onChange={(syncDivision) => patch({ syncDivision })} />
+        <Select label="LFO" value={preset.lfoShape === 'saw' ? 'ramp' : preset.lfoShape} values={['sine', 'tri', 'square', 'ramp', 'pulse', 'talk']} onChange={(lfoShape) => patch({ lfoShape })} />
+        <Select label="SYNC" value={preset.syncDivision} values={['1/4', '1/8', '1/8.', '1/8T', '1/16', '1/16T']} onChange={(syncDivision) => patch({ syncDivision })} />
         <Select label="DRIVE TYPE" value={preset.driveType} values={['soft', 'hard', 'foldback']} onChange={(driveType) => patch({ driveType })} />
-        <span style={{ ...styles.control, minWidth: 150 }}>LFO HZ <strong>{resolveLfoHz(preset, engine.getBpm()).toFixed(2)}</strong></span>
       </div>
       <div style={styles.actions}>
-        {NOTES.map(([key, freq]) => <button key={key} style={styles.button} onMouseDown={() => play(freq)} onMouseUp={() => stop(freq)}>{key}</button>)}
+        {NOTES.map(([key, freq]) => (
+          <ActionButton
+            key={key}
+            style={{
+              minWidth: 54,
+              border: latchedNotes.includes(freq) ? '1px solid #00cfff' : undefined,
+              color: latchedNotes.includes(freq) ? '#00e5ff' : undefined,
+              background: latchedNotes.includes(freq) ? '#082932' : undefined
+            }}
+            onPointerDown={(event) => {
+              event.currentTarget.setPointerCapture?.(event.pointerId);
+              beginPress(key, freq);
+            }}
+            onPointerUp={() => endPress(key)}
+            onPointerCancel={() => endPress(key)}
+            onDoubleClick={() => stop(freq)}
+          >
+            {key}
+          </ActionButton>
+        ))}
       </div>
       <div style={styles.actions}>
-        <button style={styles.primaryButton} onClick={() => setPreset(randomGrowlPreset(Date.now(), preset))}>Randomize Growl</button>
-        <button style={styles.button} onClick={() => saveProducerPreset(PRESET_KEY, preset)}>Save Preset</button>
-        <button style={styles.button} onClick={() => setPreset(loadProducerPreset(PRESET_KEY, DEFAULT_GROWL_PRESET))}>Load Preset</button>
-        <button style={styles.button} onClick={() => void exportOneShot()}>Export One-Shot</button>
+        {STARTER_GROWL_PRESETS.map((entry) => (
+          <ActionButton key={entry.name} onClick={() => {
+            setPreset(normalizeGrowlPreset(entry.preset));
+            setStatus({ tone: 'success', message: `Loaded starter preset: ${entry.name}.` });
+          }}>{entry.name}</ActionButton>
+        ))}
       </div>
+      <div style={styles.actions}>
+        <ActionButton variant="primary" onClick={() => {
+          setPreset(normalizeGrowlPreset(randomGrowlPreset(Date.now(), preset)));
+          setStatus({ tone: 'success', message: 'Randomized growl preset.' });
+        }}>Randomize Growl</ActionButton>
+        <ActionButton onClick={() => {
+          const saved = saveProducerPreset(PRESET_KEY, normalizeGrowlPreset(preset));
+          setStatus(saved
+            ? { tone: 'success', message: 'Preset saved to localStorage.' }
+            : { tone: 'error', message: 'Preset storage is unavailable in this browser context.' });
+        }}>Save Preset</ActionButton>
+        <ActionButton onClick={() => {
+          setPreset(normalizeGrowlPreset(loadProducerPreset(PRESET_KEY, DEFAULT_GROWL_PRESET)));
+          setStatus({ tone: 'success', message: 'Preset loaded.' });
+        }}>Load Preset</ActionButton>
+        <ActionButton loading={exporting} onClick={() => void exportOneShot()}>Export One-Shot</ActionButton>
+      </div>
+      {status && <StatusMessage tone={status.tone}>{status.message}</StatusMessage>}
     </ToolPanel>
   );
+}
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  const tag = target.tagName.toLowerCase();
+  return tag === 'input' || tag === 'textarea' || tag === 'select' || target.isContentEditable;
 }
 
 function Range({ label, value, min, max, step, onChange }: { label: string; value: number; min: number; max: number; step: number; onChange: (value: number) => void }) {
@@ -167,7 +378,7 @@ function Select<T extends string>({ label, value, values, onChange }: { label: s
   );
 }
 
-function drawSpectrum(canvas: HTMLCanvasElement | null, analyser: AnalyserNode) {
+function drawSpectrum(canvas: HTMLCanvasElement | null, analyser: AnalyserNode, preset: GrowlPreset, bpm: number, active: boolean) {
   if (!canvas) return;
   const rect = canvas.getBoundingClientRect();
   const dpr = window.devicePixelRatio || 1;
@@ -187,4 +398,35 @@ function drawSpectrum(canvas: HTMLCanvasElement | null, analyser: AnalyserNode) 
     const value = bins[Math.floor((i / bars) * bins.length)] / 255;
     ctx.fillRect(i * (rect.width / bars), rect.height - value * rect.height, rect.width / bars - 1, value * rect.height);
   }
+  const lfoHz = resolveLfoHz(preset, bpm);
+  const phase = (performance.now() / 1000 * lfoHz) % 1;
+  const lfoValue = lfoShapeValue(preset.lfoShape, phase);
+  const x = phase * rect.width;
+  const y = rect.height - lfoValue * rect.height;
+  ctx.strokeStyle = active ? '#ffcc33' : 'rgba(255, 204, 51, 0.35)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(x, 0);
+  ctx.lineTo(x, rect.height);
+  ctx.stroke();
+  ctx.fillStyle = active ? '#ffcc33' : 'rgba(255, 204, 51, 0.45)';
+  ctx.beginPath();
+  ctx.arc(x, y, active ? 5 : 4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#d8d8d8';
+  ctx.font = '11px sans-serif';
+  ctx.fillText(`LFO ${preset.lfoShape} ${lfoHz.toFixed(2)}Hz`, 10, rect.height - 12);
+}
+
+function lfoShapeValue(shape: LfoShape, phase: number): number {
+  if (shape === 'square' || shape === 'pulse') return phase < (shape === 'pulse' ? 0.35 : 0.5) ? 1 : 0.08;
+  if (shape === 'tri') return phase < 0.5 ? phase * 2 : 2 - phase * 2;
+  if (shape === 'ramp' || shape === 'saw') return phase;
+  if (shape === 'talk') {
+    if (phase < 0.25) return 0.2;
+    if (phase < 0.5) return 0.72;
+    if (phase < 0.75) return 0.38;
+    return 1;
+  }
+  return 0.5 + Math.sin(phase * Math.PI * 2) * 0.5;
 }

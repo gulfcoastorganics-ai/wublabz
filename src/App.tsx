@@ -64,48 +64,12 @@ function App() {
       </header>
 
       <nav style={styles.tabs} aria-label="WubLabz views">
-        <button
-          type="button"
-          onClick={() => setView('pad')}
-          style={{ ...styles.tabButton, ...(view === 'pad' ? styles.activeTabButton : {}) }}
-        >
-          WubPad
-        </button>
-        <button
-          type="button"
-          onClick={() => setView('engine')}
-          style={{ ...styles.tabButton, ...(view === 'engine' ? styles.activeTabButton : {}) }}
-        >
-          WubLabz Engine Dashboard
-        </button>
-        <button
-          type="button"
-          onClick={() => setView('mangler')}
-          style={{ ...styles.tabButton, ...(view === 'mangler' ? styles.activeTabButton : {}) }}
-        >
-          Sample Mangler
-        </button>
-        <button
-          type="button"
-          onClick={() => setView('synth')}
-          style={{ ...styles.tabButton, ...(view === 'synth' ? styles.activeTabButton : {}) }}
-        >
-          Bass Synth
-        </button>
-        <button
-          type="button"
-          onClick={() => setView('flip-prep')}
-          style={{ ...styles.tabButton, ...(view === 'flip-prep' ? styles.activeTabButton : {}) }}
-        >
-          Flip Prep
-        </button>
-        <button
-          type="button"
-          onClick={() => setView('remix-dubstep')}
-          style={{ ...styles.tabButton, ...(view === 'remix-dubstep' ? styles.activeTabButton : {}) }}
-        >
-          Remix to Dubstep
-        </button>
+        <TabButton active={view === 'pad'} onClick={() => setView('pad')}>WubPad</TabButton>
+        <TabButton active={view === 'engine'} onClick={() => setView('engine')}>WubLabz Engine Dashboard</TabButton>
+        <TabButton active={view === 'mangler'} onClick={() => setView('mangler')}>Sample Mangler</TabButton>
+        <TabButton active={view === 'synth'} onClick={() => setView('synth')}>Bass Synth</TabButton>
+        <TabButton active={view === 'flip-prep'} onClick={() => setView('flip-prep')}>Flip Prep</TabButton>
+        <TabButton active={view === 'remix-dubstep'} onClick={() => setView('remix-dubstep')}>Remix to Dubstep</TabButton>
       </nav>
 
       <section style={styles.instructions} aria-label="Connection instructions">
@@ -124,6 +88,34 @@ function App() {
         </ErrorBoundary>
       </main>
     </div>
+  );
+}
+
+function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
+  const [hovered, setHovered] = useState(false);
+  const [pressed, setPressed] = useState(false);
+  return (
+    <button
+      type="button"
+      aria-current={active ? 'page' : undefined}
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => {
+        setHovered(false);
+        setPressed(false);
+      }}
+      onMouseDown={() => setPressed(true)}
+      onMouseUp={() => setPressed(false)}
+      onBlur={() => setPressed(false)}
+      style={{
+        ...styles.tabButton,
+        ...(hovered ? styles.tabButtonHover : {}),
+        ...(pressed ? styles.tabButtonActive : {}),
+        ...(active ? styles.activeTabButton : {})
+      }}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -170,8 +162,17 @@ const styles: Record<string, React.CSSProperties> = {
     whiteSpace: 'nowrap'
   },
   activeTabButton: {
-    borderColor: '#00ffcc',
+    border: '1px solid #00ffcc',
+    backgroundColor: '#0f2622',
     color: '#00ffcc'
+  },
+  tabButtonHover: {
+    backgroundColor: '#262626',
+    border: '1px solid #666'
+  },
+  tabButtonActive: {
+    transform: 'translateY(1px)',
+    backgroundColor: '#111'
   },
   instructions: {
     padding: '0.75rem 1rem',

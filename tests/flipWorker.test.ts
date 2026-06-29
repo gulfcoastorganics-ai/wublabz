@@ -368,6 +368,7 @@ function testConfig(workDir: string): FlipPrepWorkerConfig {
     host: '127.0.0.1',
     separator: 'local',
     maxUploadBytes: 1024 * 1024,
+    maxClipSeconds: 60,
     concurrency: 1,
     jobTtlMs: 1000,
     demucsTimeoutMs: 1000,

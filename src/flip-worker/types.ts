@@ -27,6 +27,7 @@ export interface FlipPrepWorkerConfig {
   host: string;
   separator: 'local' | 'cloud';
   maxUploadBytes: number;
+  maxClipSeconds: number;
   concurrency: number;
   jobTtlMs: number;
   demucsTimeoutMs: number;

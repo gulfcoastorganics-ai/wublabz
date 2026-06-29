@@ -1,6 +1,6 @@
-export type LfoShape = 'sine' | 'tri' | 'square' | 'saw' | 'ramp';
+export type LfoShape = 'sine' | 'tri' | 'square' | 'saw' | 'ramp' | 'pulse' | 'talk';
 export type WobbleMode = 'sync' | 'free';
-export type SyncDivision = '1/4' | '1/8' | '1/8.' | '1/16';
+export type SyncDivision = '1/4' | '1/8' | '1/8.' | '1/8T' | '1/16' | '1/16T';
 export type DriveType = 'soft' | 'hard' | 'foldback';
 export type ProducerOscillatorType = 'sine' | 'square' | 'sawtooth' | 'triangle';
 
@@ -39,6 +39,7 @@ export interface GrowlPreset {
   filterSustain: number;
   filterRelease: number;
   bpm: number;
+  glideSeconds: number;
 }
 
 export const DEFAULT_GROWL_PRESET: GrowlPreset = {
@@ -70,14 +71,102 @@ export const DEFAULT_GROWL_PRESET: GrowlPreset = {
   filterDecay: 0.2,
   filterSustain: 0.35,
   filterRelease: 0.12,
-  bpm: 140
+  bpm: 140,
+  glideSeconds: 0.08
 };
+
+export const STARTER_GROWL_PRESETS: Array<{ name: string; preset: GrowlPreset }> = [
+  {
+    name: 'Deep Sub',
+    preset: {
+      ...DEFAULT_GROWL_PRESET,
+      osc1: 'sine',
+      osc2: 'triangle',
+      unisonVoices: 1,
+      cutoffHz: 360,
+      resonance: 5,
+      lfoDepth: 0.42,
+      syncDivision: '1/4',
+      drive: 0.22,
+      driveType: 'soft',
+      subLevel: 1,
+      sustain: 0.72,
+      glideSeconds: 0.16
+    }
+  },
+  {
+    name: 'Reese',
+    preset: {
+      ...DEFAULT_GROWL_PRESET,
+      osc1: 'sawtooth',
+      osc2: 'sawtooth',
+      detuneCents: 18,
+      detuneSpreadCents: 18,
+      unisonVoices: 4,
+      cutoffHz: 520,
+      resonance: 6,
+      lfoShape: 'tri',
+      lfoDepth: 0.48,
+      drive: 0.45,
+      driveType: 'soft',
+      subLevel: 0.82,
+      glideSeconds: 0.1
+    }
+  },
+  {
+    name: 'Talking Bass',
+    preset: {
+      ...DEFAULT_GROWL_PRESET,
+      cutoffHz: 780,
+      resonance: 12,
+      formantAmount: 0.55,
+      lfoShape: 'talk',
+      syncDivision: '1/8T',
+      lfoDepth: 0.78,
+      secondLfoDepth: 0.34,
+      secondLfoHz: 0.72,
+      drive: 0.62,
+      driveType: 'foldback',
+      glideSeconds: 0.12
+    }
+  },
+  {
+    name: 'Hard Growl',
+    preset: {
+      ...DEFAULT_GROWL_PRESET,
+      osc1: 'sawtooth',
+      osc2: 'square',
+      cutoffHz: 920,
+      resonance: 14,
+      formantAmount: 0.38,
+      lfoShape: 'pulse',
+      syncDivision: '1/16',
+      lfoDepth: 0.9,
+      drive: 0.86,
+      driveType: 'hard',
+      subLevel: 0.88,
+      attack: 0.004,
+      release: 0.12,
+      glideSeconds: 0.06
+    }
+  }
+];
+
+export function normalizeGrowlPreset(value: Partial<GrowlPreset> | GrowlPreset): GrowlPreset {
+  return {
+    ...DEFAULT_GROWL_PRESET,
+    ...value,
+    glideSeconds: value.glideSeconds ?? DEFAULT_GROWL_PRESET.glideSeconds
+  };
+}
 
 const DIVISION_BEATS: Record<SyncDivision, number> = {
   '1/4': 1,
   '1/8': 0.5,
   '1/8.': 0.75,
-  '1/16': 0.25
+  '1/8T': 1 / 3,
+  '1/16': 0.25,
+  '1/16T': 1 / 6
 };
 
 export function lfoSyncHz(bpm: number, division: SyncDivision): number {
@@ -163,7 +252,7 @@ export function applyDrive(sample: number, type: DriveType, amount: number): num
 export function randomGrowlPreset(seed: string | number, base: GrowlPreset = DEFAULT_GROWL_PRESET): GrowlPreset {
   const rng = createPresetRng(seed);
   const waves: ProducerOscillatorType[] = ['sawtooth', 'square', 'triangle'];
-  const divisions: SyncDivision[] = ['1/4', '1/8', '1/8.', '1/16'];
+  const divisions: SyncDivision[] = ['1/4', '1/8', '1/8.', '1/8T', '1/16', '1/16T'];
   const drives: DriveType[] = ['soft', 'hard', 'foldback'];
   return {
     ...base,
@@ -177,7 +266,7 @@ export function randomGrowlPreset(seed: string | number, base: GrowlPreset = DEF
     filterEnvelopeAmount: Number((0.35 + rng() * 0.6).toFixed(2)),
     keyTrack: Number((rng() * 0.55).toFixed(2)),
     formantAmount: Number((rng() * 0.55).toFixed(2)),
-    lfoShape: (['sine', 'tri', 'square', 'ramp'] as LfoShape[])[Math.floor(rng() * 4)],
+    lfoShape: (['sine', 'tri', 'square', 'ramp', 'pulse', 'talk'] as LfoShape[])[Math.floor(rng() * 6)],
     syncDivision: divisions[Math.floor(rng() * divisions.length)],
     freeHz: Number((0.5 + rng() * 11).toFixed(2)),
     lfoDepth: Number((0.35 + rng() * 0.6).toFixed(2)),
@@ -193,7 +282,8 @@ export function randomGrowlPreset(seed: string | number, base: GrowlPreset = DEF
     filterAttack: Number((0.015 + rng() * 0.1).toFixed(3)),
     filterDecay: Number((0.08 + rng() * 0.35).toFixed(3)),
     filterSustain: Number((0.25 + rng() * 0.5).toFixed(2)),
-    filterRelease: Number((0.06 + rng() * 0.28).toFixed(3))
+    filterRelease: Number((0.06 + rng() * 0.28).toFixed(3)),
+    glideSeconds: Number((rng() * 0.2).toFixed(3))
   };
 }
 

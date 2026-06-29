@@ -9,6 +9,7 @@ export function loadFlipPrepWorkerConfig(env: NodeJS.ProcessEnv = process.env): 
     host: env.FLIP_WORKER_HOST ?? '0.0.0.0',
     separator: env.SEPARATOR === 'cloud' ? 'cloud' : 'local',
     maxUploadBytes: numberEnv(env.FLIP_PREP_MAX_UPLOAD_BYTES, 250 * 1024 * 1024),
+    maxClipSeconds: numberEnv(env.FLIP_PREP_MAX_CLIP_SECONDS, 60),
     concurrency: Math.max(1, numberEnv(env.FLIP_PREP_CONCURRENCY, 1)),
     jobTtlMs: numberEnv(env.FLIP_PREP_JOB_TTL_MS, 30 * 60 * 1000),
     demucsTimeoutMs: numberEnv(env.DEMUCS_TIMEOUT_MS, 20 * 60 * 1000),
