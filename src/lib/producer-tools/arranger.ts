@@ -47,7 +47,11 @@ export interface RemixArrangement {
   sections: RemixSection[];
   tracks: RemixTrack[];
   bassPreset: GrowlPreset;
-  flipPrep: Pick<FlipPrepResult, 'key' | 'bpm' | 'stems' | 'acapella140Url'>;
+  flipPrep: Pick<FlipPrepResult, 'key' | 'bpm' | 'stems' | 'acapella140Url' | 'outputPaths'>;
+}
+
+export interface RemixAudioAssets {
+  acapella140?: ChannelBuffer;
 }
 
 export interface GenerateRemixArrangementOptions {
@@ -232,6 +236,37 @@ export function renderArrangementGuideStem(arrangement: RemixArrangement, trackT
 
 export function renderArrangementGuideMaster(arrangement: RemixArrangement, sampleRate = 44100): ChannelBuffer {
   const stems = arrangement.tracks.map((track) => renderArrangementGuideStem(arrangement, track.type, sampleRate));
+  return mixArrangementStems(stems);
+}
+
+export function renderArrangementMasterWithAudio(arrangement: RemixArrangement, assets: RemixAudioAssets, sampleRate = 44100): ChannelBuffer {
+  const stems = arrangement.tracks.map((track) => renderArrangementStemWithAudio(arrangement, track.type, assets, sampleRate));
+  return mixArrangementStems(stems);
+}
+
+export function renderArrangementStemWithAudio(arrangement: RemixArrangement, trackType: RemixTrackType, assets: RemixAudioAssets, sampleRate = 44100): ChannelBuffer {
+  const durationSeconds = arrangementDurationSeconds(arrangement);
+  const frames = Math.ceil(durationSeconds * sampleRate);
+  const left = new Float32Array(frames);
+  const right = new Float32Array(frames);
+  const track = arrangement.tracks.find((entry) => entry.type === trackType);
+  if (!track || track.muted) return { sampleRate, channels: [left, right] };
+
+  for (const clip of track.clips) {
+    if (clip.type === 'drum-pattern') renderDrumClip(left, right, sampleRate, arrangement.targetBpm, clip);
+    if (clip.type === 'bass-growl') renderBassClip(left, right, sampleRate, arrangement.targetBpm, clip);
+    if (clip.type === 'mangler-fill') renderFillClip(left, right, sampleRate, arrangement.targetBpm, clip);
+    if (clip.type === 'audio') {
+      if (!assets.acapella140) throw new Error('Real acapella audio is required to render Remix audio clips');
+      renderAudioClip(left, right, sampleRate, arrangement.targetBpm, clip, assets.acapella140, 0.82);
+    }
+  }
+
+  return { sampleRate, channels: [left, right] };
+}
+
+function mixArrangementStems(stems: ChannelBuffer[]): ChannelBuffer {
+  const sampleRate = stems[0]?.sampleRate ?? 44100;
   const frames = stems[0]?.channels[0]?.length ?? 0;
   const left = new Float32Array(frames);
   const right = new Float32Array(frames);
@@ -343,16 +378,160 @@ function drumPatternForSection(kind: RemixSectionKind): DrumPatternKind {
 function renderDrumClip(left: Float32Array, right: Float32Array, sampleRate: number, bpm: number, clip: RemixClip): void {
   const beatSeconds = 60 / bpm;
   const pattern = clip.payload.pattern as DrumPatternKind;
+  const swingRatio = (clip.payload.swing as number | undefined) ?? 0.04;
+  const seed = String(clip.payload.seed ?? clip.id);
   const startFrame = Math.floor(clip.startBeat * beatSeconds * sampleRate);
   const totalBeats = clip.durationBeats;
-  for (let beat = 0; beat < totalBeats; beat += 0.5) {
-    const isKick = pattern === 'half-time-drop' ? beat % 4 === 0 : beat % 4 === 0 && pattern !== 'breakdown-space';
-    const isSnare = pattern === 'half-time-drop' ? beat % 4 === 2 : pattern === 'buildup-riser' && beat % 2 === 1;
-    const isHat = pattern === 'buildup-riser' || (pattern === 'half-time-drop' && beat % 1 !== 0);
-    const frame = startFrame + Math.floor(beat * beatSeconds * sampleRate);
-    if (isKick) addDecayingTone(left, right, frame, sampleRate, 55, 0.55, 0.12);
-    if (isSnare) addNoiseBurst(left, right, frame, sampleRate, 0.32, 0.08);
-    if (isHat) addNoiseBurst(left, right, frame, sampleRate, 0.08, 0.025);
+  const totalBars = Math.round(totalBeats / 4);
+  const rng = createArrangerRng(seed);
+  const velTable = Array.from({ length: 32 }, () => 0.80 + rng() * 0.20);
+  const STEP = 0.25; // 1/16th note resolution
+
+  for (let s = 0; s < Math.round(totalBeats / STEP); s++) {
+    const rawBeat = s * STEP;
+    const barIndex = Math.floor(rawBeat / 4);
+    const stepInBar = Math.round((rawBeat % 4) / STEP) % 16; // 0–15
+    const swingFrames = stepInBar % 2 === 1 ? Math.floor(swingRatio * beatSeconds * sampleRate) : 0;
+    const frame = startFrame + Math.floor(rawBeat * beatSeconds * sampleRate) + swingFrames;
+    if (frame >= left.length) continue;
+    const vel = velTable[(barIndex * 16 + stepInBar) % 32] ?? 1.0;
+
+    if (pattern === 'sparse-intro') drumSparseIntro(left, right, frame, sampleRate, barIndex, totalBars, stepInBar, vel);
+    else if (pattern === 'buildup-riser') drumBuildup(left, right, frame, sampleRate, barIndex, totalBars, stepInBar, vel);
+    else if (pattern === 'half-time-drop') drumDrop(left, right, frame, sampleRate, barIndex, totalBars, stepInBar, vel);
+    else if (pattern === 'breakdown-space') drumBreakdown(left, right, frame, sampleRate, barIndex, totalBars, stepInBar, vel);
+    else if (pattern === 'outro-tail') drumOutro(left, right, frame, sampleRate, barIndex, totalBars, stepInBar, vel);
+  }
+}
+
+// sparse-intro: kick + snare backbone enter progressively; hats emerge in second half
+function drumSparseIntro(
+  left: Float32Array, right: Float32Array, frame: number, sampleRate: number,
+  barIndex: number, totalBars: number, stepInBar: number, vel: number
+): void {
+  const progress = barIndex / Math.max(1, totalBars - 1);
+  if (stepInBar === 0) {
+    addDecayingTone(left, right, frame, sampleRate, 55, (0.38 + progress * 0.14) * vel, 0.12);
+  }
+  // Snare enters at bar 2, builds in volume
+  if (stepInBar === 8 && barIndex >= 2) {
+    addNoiseBurst(left, right, frame, sampleRate, (0.22 + progress * 0.08) * vel, 0.08);
+  }
+  // Sparse offbeat hats (beats 1-and and 3-and) in second half only
+  if ((stepInBar === 2 || stepInBar === 10) && progress > 0.55) {
+    addNoiseBurst(left, right, frame, sampleRate, 0.05 * vel, 0.020);
+  }
+}
+
+// buildup-riser: half-time backbone + densifying hats, 2-bar snare roll into the drop
+function drumBuildup(
+  left: Float32Array, right: Float32Array, frame: number, sampleRate: number,
+  barIndex: number, totalBars: number, stepInBar: number, vel: number
+): void {
+  const progress = barIndex / Math.max(1, totalBars - 1);
+  const barsLeft = totalBars - barIndex; // 1 = last bar, 2 = second-to-last
+
+  // Kick every bar, getting harder
+  if (stepInBar === 0) {
+    addDecayingTone(left, right, frame, sampleRate, 55, (0.42 + progress * 0.16) * vel, 0.12);
+  }
+
+  if (barsLeft <= 2) {
+    // Snare roll: 1/8ths in second-to-last bar, full 1/16ths in last bar
+    const rollProgress = (2 - barsLeft + stepInBar / 16) / 2; // 0..1 across 2 bars
+    const rollGain = Math.min(0.55, (0.18 + rollProgress * 0.37) * vel);
+    const isRollHit = barsLeft <= 1 ? true : stepInBar % 2 === 0 && stepInBar > 0;
+    if (isRollHit) addNoiseBurst(left, right, frame, sampleRate, rollGain, 0.065);
+    // Step 0 of last bar: kick + snare wall of sound
+    if (barsLeft <= 1 && stepInBar === 0) addNoiseBurst(left, right, frame, sampleRate, rollGain, 0.065);
+  } else {
+    // Normal snare on beat 3 (step 8)
+    if (stepInBar === 8) {
+      addNoiseBurst(left, right, frame, sampleRate, (0.26 + progress * 0.10) * vel, 0.09);
+    }
+    // Snare accent on "4-and" (step 14) in last 4 bars before the roll
+    if (stepInBar === 14 && barsLeft <= 4) {
+      addNoiseBurst(left, right, frame, sampleRate, 0.19 * vel, 0.07);
+    }
+  }
+
+  // Hi-hats during buildup body (not during roll)
+  if (barsLeft > 2) {
+    const isEighthOff = stepInBar === 2 || stepInBar === 6 || stepInBar === 10 || stepInBar === 14;
+    const isOnbeatEighth = stepInBar === 4 || stepInBar === 12;
+    const isOddSixteenth = stepInBar % 2 === 1;
+    if (isEighthOff) addNoiseBurst(left, right, frame, sampleRate, 0.065 * vel, 0.022);
+    if (isOnbeatEighth && progress > 0.4) addNoiseBurst(left, right, frame, sampleRate, 0.050 * vel, 0.020);
+    if (isOddSixteenth && progress > 0.70) addNoiseBurst(left, right, frame, sampleRate, 0.032 * vel, 0.016);
+  }
+}
+
+// half-time-drop: hard kick + snare backbone, open hat offbeat, 1/16th groove hats, fills every 4 bars
+function drumDrop(
+  left: Float32Array, right: Float32Array, frame: number, sampleRate: number,
+  barIndex: number, totalBars: number, stepInBar: number, vel: number
+): void {
+  const isFillBar = (barIndex + 1) % 4 === 0;
+  const isLastBar = barIndex === totalBars - 1;
+
+  // Kick: beat 1 (step 0) — hard dubstep hit
+  if (stepInBar === 0) {
+    addDecayingTone(left, right, frame, sampleRate, 55, 0.62 * vel, 0.14);
+  }
+  // Ghost kicks in fill bars: "3-and" (step 10) and "4-e" (step 13)
+  if ((isFillBar || isLastBar) && (stepInBar === 10 || stepInBar === 13)) {
+    addDecayingTone(left, right, frame, sampleRate, 58, 0.24 * vel, 0.08);
+  }
+  // Snare: beat 3 (step 8) — the half-time backbone, HARD
+  if (stepInBar === 8) {
+    addNoiseBurst(left, right, frame, sampleRate, 0.44 * vel, 0.10);
+  }
+  // Snare fill at bar boundary: "4-and" and "4-a" (steps 14, 15)
+  if ((isFillBar || isLastBar) && (stepInBar === 14 || stepInBar === 15)) {
+    addNoiseBurst(left, right, frame, sampleRate, 0.28 * vel, 0.075);
+  }
+  // Open hat: "2-and" (step 6) — classic dubstep offbeat open hat (longer decay)
+  if (stepInBar === 6) {
+    addNoiseBurst(left, right, frame, sampleRate, 0.16 * vel, 0.048);
+  }
+  // Closed hats: offbeats of beats 1 and 3 (steps 2, 10)
+  if (stepInBar === 2 || stepInBar === 10) {
+    addNoiseBurst(left, right, frame, sampleRate, 0.08 * vel, 0.022);
+  }
+  // 1/16th groove hats on the "e"s (steps 1, 5, 9, 13) — drives the pocket
+  if (stepInBar === 1 || stepInBar === 5 || stepInBar === 9 || stepInBar === 13) {
+    addNoiseBurst(left, right, frame, sampleRate, 0.038 * vel, 0.016);
+  }
+}
+
+// breakdown-space: mostly empty; sparse kick every 2 bars, snare creeps back near end
+function drumBreakdown(
+  left: Float32Array, right: Float32Array, frame: number, sampleRate: number,
+  barIndex: number, totalBars: number, stepInBar: number, vel: number
+): void {
+  if (stepInBar === 0 && barIndex % 2 === 0) {
+    addDecayingTone(left, right, frame, sampleRate, 55, 0.30 * vel, 0.10);
+  }
+  if (stepInBar === 8 && barIndex >= totalBars - 2) {
+    addNoiseBurst(left, right, frame, sampleRate, 0.18 * vel, 0.07);
+  }
+}
+
+// outro-tail: half-time groove fades out over 8 bars
+function drumOutro(
+  left: Float32Array, right: Float32Array, frame: number, sampleRate: number,
+  barIndex: number, totalBars: number, stepInBar: number, vel: number
+): void {
+  const fadeGain = Math.max(0, 1 - (barIndex / Math.max(1, totalBars - 1)) * 0.90);
+  if (stepInBar === 0) {
+    addDecayingTone(left, right, frame, sampleRate, 55, 0.50 * vel * fadeGain, 0.12);
+  }
+  if (stepInBar === 8) {
+    addNoiseBurst(left, right, frame, sampleRate, 0.34 * vel * fadeGain, 0.09);
+  }
+  // Offbeat hats only in first half of outro
+  if ((stepInBar === 2 || stepInBar === 10) && barIndex < totalBars / 2) {
+    addNoiseBurst(left, right, frame, sampleRate, 0.065 * vel * fadeGain, 0.022);
   }
 }
 
@@ -391,6 +570,25 @@ function renderAcapellaGuideClip(left: Float32Array, right: Float32Array, sample
     const sample = Math.sin(2 * Math.PI * 220 * t) * phraseAmp * env;
     left[startFrame + i] += sample;
     right[startFrame + i] += sample;
+  }
+}
+
+function renderAudioClip(left: Float32Array, right: Float32Array, sampleRate: number, bpm: number, clip: RemixClip, source: ChannelBuffer, gain: number): void {
+  const beatSeconds = 60 / bpm;
+  const startFrame = Math.floor(clip.startBeat * beatSeconds * sampleRate);
+  const clipFrames = Math.floor(clip.durationBeats * beatSeconds * sampleRate);
+  const fadeFrames = Math.min(Math.floor(sampleRate * 0.015), Math.floor(clipFrames / 3));
+
+  for (let i = 0; i < clipFrames && startFrame + i < left.length; i++) {
+    const sourceFrame = Math.floor((i * source.sampleRate) / sampleRate);
+    if (sourceFrame >= (source.channels[0]?.length ?? 0)) break;
+    const fadeIn = fadeFrames > 0 && i < fadeFrames ? i / fadeFrames : 1;
+    const fadeOut = fadeFrames > 0 && i > clipFrames - fadeFrames ? (clipFrames - i) / fadeFrames : 1;
+    const env = Math.max(0, Math.min(1, fadeIn, fadeOut));
+    const sourceLeft = source.channels[0]?.[sourceFrame] ?? 0;
+    const sourceRight = source.channels[1]?.[sourceFrame] ?? sourceLeft;
+    left[startFrame + i] += sourceLeft * gain * env;
+    right[startFrame + i] += sourceRight * gain * env;
   }
 }
 

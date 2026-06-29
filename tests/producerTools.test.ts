@@ -7,9 +7,10 @@ import {
   isMidiInKey,
   regenerateArrangementElement,
   renderArrangementGuideMaster,
+  renderArrangementMasterWithAudio,
   type RemixArrangement
 } from '../src/lib/producer-tools/arranger.js';
-import { decodeWavHeader, encodeWav } from '../src/lib/export/wav.js';
+import { decodeWav, decodeWavHeader, encodeWav } from '../src/lib/export/wav.js';
 import { applyMasterGlueCompression, DEFAULT_LOW_MONO_HZ, DEFAULT_MASTER_CEILING_DB, DEFAULT_MASTER_GLUE_RATIO, DEFAULT_MASTER_GLUE_THRESHOLD_DB, DEFAULT_MASTER_HEADROOM_DB, DEFAULT_MASTER_MAKEUP_DB, getPeakAmplitude, monoLowBand, normalizeChannelBuffer, normalizeTruePeakSafe, renderMasterChannelBuffer } from '../src/lib/audio/outputQuality.js';
 import { applyEqualPowerFade, createSlicePlan, renderMangledBuffer, softLimitSample, type ChannelBuffer } from '../src/lib/producer-tools/mangler.js';
 import { clampFlipPrepClipSelection, estimateFlipPrepTotalSeconds, trimChannelBuffer } from '../src/lib/producer-tools/flipPrepClip.js';
@@ -201,6 +202,16 @@ describe('producer tool DSP logic', () => {
     expect(decodeWavHeader(wav)).toEqual({ sampleRate: 48000, channels: 2, frames: 12 });
   });
 
+  it('decodes PCM WAV samples into channel buffers', () => {
+    const wav = encodeWav({ sampleRate: 8000, channels: [new Float32Array([0, 0.5, -0.5])] });
+    const decoded = decodeWav(wav);
+
+    expect(decoded.sampleRate).toBe(8000);
+    expect(decoded.channels).toHaveLength(1);
+    expect(decoded.channels[0][1]).toBeCloseTo(0.5, 3);
+    expect(decoded.channels[0][2]).toBeCloseTo(-0.5, 3);
+  });
+
   it('clamps Flip Prep section selection to the configured CPU-safe duration', () => {
     expect(clampFlipPrepClipSelection(240, 12, 120, 45)).toEqual({
       startSeconds: 12,
@@ -321,6 +332,21 @@ describe('remix arranger logic', () => {
     expect(buffer.channels).toHaveLength(2);
     expect(buffer.channels[0].length).toBeGreaterThan(0);
     expect(peak(buffer.channels[0])).toBeGreaterThan(0);
+  });
+
+  it('renders real acapella audio in the arranger master when provided', () => {
+    const arrangement = generateRemixArrangement({ flipPrep, seed: 'real-acapella' });
+    const acapella = { sampleRate: 8000, channels: [new Float32Array(8000 * 20).fill(0.25)] };
+    const buffer = renderArrangementMasterWithAudio(arrangement, { acapella140: acapella }, 8000);
+    const buildupStart = Math.floor(arrangement.sections[1].startBar * (60 / arrangement.targetBpm) * 4 * 8000);
+
+    expect(buffer.channels[0][buildupStart + 1200]).toBeGreaterThan(0.05);
+  });
+
+  it('does not silently fall back to guide tone when real acapella audio is missing', () => {
+    const arrangement = generateRemixArrangement({ flipPrep, seed: 'missing-acapella' });
+
+    expect(() => renderArrangementMasterWithAudio(arrangement, {}, 8000)).toThrow('Real acapella audio is required');
   });
 });
 

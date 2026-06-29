@@ -2,6 +2,7 @@ import React, { useMemo, useRef, useState } from 'react';
 import { createGrowlVoice } from '../lib/audio/GrowlVoiceGraph';
 import { fromChannelBuffer, getProducerAnalyser, getProducerAudioContext } from '../lib/audio/ProducerAudioEngine';
 import { renderBufferToWav } from '../lib/export/AudioRenderExport';
+import { decodeWav } from '../lib/export/wav';
 import { HttpFlipPrepClient, OfflineFlipPrepClient, resolveFlipPrepAssetUrl, type FlipPrepJob } from '../lib/producer-tools/flipPrepApi';
 import {
   arrangementDurationSeconds,
@@ -10,6 +11,7 @@ import {
   regenerateArrangementElement,
   renderArrangementGuideMaster,
   renderArrangementGuideStem,
+  renderArrangementMasterWithAudio,
   type RemixArrangement,
   type RemixTrackType
 } from '../lib/producer-tools/arranger';
@@ -160,13 +162,16 @@ export function RemixToDubstepView() {
     }
   }
 
-  function exportMaster() {
+  async function exportMaster() {
     if (!arrangement) return;
     setExporting('master');
     try {
-      const wav = renderBufferToWav('wublabz-dubstep-skeleton-master.wav', renderArrangementGuideMaster(arrangement));
+      const acapella = await loadAcapellaForArrangement(arrangement, client.baseUrl);
+      const wav = renderBufferToWav('wublabz-dubstep-master.wav', renderArrangementMasterWithAudio(arrangement, { acapella140: acapella }));
       downloadBytes(wav.bytes, wav.fileName, wav.mimeType);
       setSuccess(`Exported ${wav.fileName}.`);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Export failed');
     } finally {
       setExporting('');
     }
@@ -228,7 +233,7 @@ export function RemixToDubstepView() {
           </div>
           <div style={styles.actions}>
             {arrangement.tracks.map((track) => <ActionButton key={track.id} loading={exporting === track.type} onClick={() => exportStem(track.type)}>Export {track.name}</ActionButton>)}
-            <ActionButton variant="primary" loading={exporting === 'master'} onClick={exportMaster}>Export Master</ActionButton>
+            <ActionButton variant="primary" loading={exporting === 'master'} onClick={() => void exportMaster()}>Export Master</ActionButton>
           </div>
           <div style={styles.actions}>
             <a href={resolveFlipPrepAssetUrl(client.baseUrl, arrangement.flipPrep.acapella140Url)} style={styles.button}>Download Flip Prep Acapella</a>
@@ -239,6 +244,13 @@ export function RemixToDubstepView() {
       {(error || job?.error) && <StatusMessage tone="error">{error || job?.error}</StatusMessage>}
     </ToolPanel>
   );
+}
+
+async function loadAcapellaForArrangement(arrangement: RemixArrangement, baseUrl: string) {
+  const url = resolveFlipPrepAssetUrl(baseUrl, arrangement.flipPrep.acapella140Url);
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Unable to load real acapella audio for render (${response.status})`);
+  return decodeWav(new Uint8Array(await response.arrayBuffer()));
 }
 
 function Timeline({ arrangement, onMute, onSolo }: { arrangement: RemixArrangement; onMute: (trackId: string) => void; onSolo: (trackId: string) => void }) {
