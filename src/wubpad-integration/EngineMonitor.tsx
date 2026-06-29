@@ -78,30 +78,33 @@ export const EngineMonitor: React.FC = () => {
   const healthLabel = health ? (healthOk ? 'OK' : 'FAILED') : 'CHECKING';
 
   return (
-    <div style={{
-      padding: '1rem',
-      border: '1px solid #ccc',
-      borderRadius: '8px',
-      backgroundColor: '#f9f9f9',
-      fontFamily: 'monospace',
-      fontSize: '0.85rem'
+    <div className="wub-glass-panel wub-view-mount" style={{
+      padding: '1.15rem',
+      border: '1px solid rgba(210, 236, 255, 0.16)',
+      borderTop: '1px solid rgba(255, 255, 255, 0.24)',
+      borderRadius: '18px',
+      background: 'linear-gradient(145deg, rgba(16, 22, 34, 0.78), rgba(11, 17, 28, 0.58))',
+      boxShadow: '0 22px 60px rgba(0, 0, 0, 0.36), inset 0 1px 0 rgba(255, 255, 255, 0.14)',
+      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+      fontSize: '0.85rem',
+      color: '#f5f8ff'
     }}>
-      <h3 style={{ margin: '0 0 1rem 0' }}>Engine Monitor {isMockMode() && <span style={{ color: 'orange' }}>(MOCK MODE)</span>}</h3>
+      <h3 style={{ margin: '0 0 1rem 0', fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif', fontSize: '1.05rem' }}>Engine Monitor {isMockMode() && <span style={{ color: '#ffd166' }}>(MOCK MODE)</span>}</h3>
       
-      <div style={{ display: 'grid', gridTemplateColumns: '150px 1fr', gap: '0.5rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '150px 1fr', gap: '0.65rem', padding: '0.9rem', border: '1px solid rgba(210, 236, 255, 0.12)', borderRadius: '14px', background: 'rgba(255, 255, 255, 0.045)' }}>
         <strong>Frontend URL:</strong> <span>{getCurrentHref()}</span>
         <strong>HTTP URL:</strong> <span>{getWubLabzHttpUrl()}</span>
         <strong>WS URL:</strong> <span>{getWubLabzWsUrl()}</span>
         
         <strong>Socket Status:</strong> 
-        <span style={{ color: status === 'connected' ? 'green' : status === 'tripped' ? 'red' : 'orange', fontWeight: 'bold' }}>
+        <span style={{ color: status === 'connected' ? '#7cffc9' : status === 'tripped' ? '#ff6b7a' : '#ffd166', fontWeight: 'bold' }}>
           {status.toUpperCase()}
         </span>
 
         <strong>Reconnects:</strong> <span>{reconnectAttempts}</span>
 
         <strong>Health Check:</strong>
-        <span style={{ color: healthOk ? 'green' : health ? 'red' : '#777' }}>
+        <span style={{ color: healthOk ? '#7cffc9' : health ? '#ff6b7a' : '#a8b3c7' }}>
           {healthLabel}
         </span>
 
@@ -110,12 +113,12 @@ export const EngineMonitor: React.FC = () => {
         <strong>Connections:</strong> <span>{getFiniteNumber(diagnostics?.activeConnectionCount, 0)}</span>
         <strong>Transport:</strong> <span>{formatUpper(diagnostics?.transportState, 'STOPPED')}</span>
         <strong>Scene:</strong> <span>{getString(diagnostics?.currentScene, '---')}</span>
-        <strong>E-Stop:</strong> <span style={{ color: emergencyStopped ? 'red' : 'inherit' }}>{emergencyStopped ? 'STOPPED' : 'CLEAR'}</span>
+        <strong>E-Stop:</strong> <span style={{ color: emergencyStopped ? '#ff6b7a' : 'inherit' }}>{emergencyStopped ? 'STOPPED' : 'CLEAR'}</span>
       </div>
 
-      <div style={{ marginTop: '1rem', borderTop: '1px solid #ddd', paddingTop: '1rem' }}>
+      <div style={{ marginTop: '1rem', border: '1px solid rgba(210, 236, 255, 0.12)', borderRadius: '14px', padding: '0.9rem', background: 'rgba(255, 255, 255, 0.04)' }}>
           <strong>WubPad Pairing Instructions:</strong>
-          <div style={{ fontSize: '0.75rem', marginTop: '0.25rem', color: '#555' }}>
+          <div style={{ fontSize: '0.75rem', marginTop: '0.35rem', color: '#a8b3c7', lineHeight: 1.55 }}>
               1. Open WubPad UI in a mobile or tablet browser.<br/>
               2. Go to SETTINGS.<br/>
               3. Enter Engine URL: <code>{getWubLabzWsUrl()}</code><br/>
@@ -124,9 +127,9 @@ export const EngineMonitor: React.FC = () => {
       </div>
 
       {lastError && (
-        <div style={{ marginTop: '1rem', padding: '0.5rem', backgroundColor: '#fee', border: '1px solid #f88', color: '#900' }}>
+        <div style={{ marginTop: '1rem', padding: '0.8rem', background: 'rgba(70, 18, 28, 0.6)', border: '1px solid rgba(255, 107, 122, 0.48)', borderRadius: '12px', color: '#ffd3d8' }}>
           <strong>Error:</strong> {lastError}
-          <div style={{ fontSize: '0.75rem', marginTop: '0.5rem' }}>
+          <div style={{ fontSize: '0.75rem', marginTop: '0.5rem', color: '#f3b6bf' }}>
             Ensure WubLabz backend is running: <code>npm run server</code>
           </div>
         </div>

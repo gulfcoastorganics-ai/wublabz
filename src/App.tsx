@@ -55,7 +55,7 @@ function App() {
   const [view, setView] = useState<AppView>('pad');
 
   return (
-    <div style={styles.shell}>
+    <div className="wub-shell-bg" style={styles.shell}>
       <header style={styles.header}>
         <div>
           <h1 style={styles.title}>WubLabz Control Surface</h1>
@@ -77,7 +77,7 @@ function App() {
         <code>http://localhost:3000</code>, and connect WubPad settings to <code>ws://localhost:3001</code>.
       </section>
 
-      <main style={styles.main}>
+      <main className="wub-view-mount" style={styles.main}>
         <ErrorBoundary boundaryKey={view}>
           {view === 'pad' && <WubPad />}
           {view === 'engine' && <EngineMonitor />}
@@ -121,77 +121,92 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
 
 const styles: Record<string, React.CSSProperties> = {
   shell: {
-    backgroundColor: '#0a0a0a',
     minHeight: '100vh',
-    color: '#fff',
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+    color: '#f5f8ff',
+    fontFamily: 'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+    padding: '1rem',
+    display: 'grid',
+    gap: '0.9rem'
   },
   header: {
-    padding: '1rem 1rem 0.75rem',
-    borderBottom: '1px solid #262626',
-    backgroundColor: '#141414'
+    padding: '1.15rem 1.25rem',
+    border: '1px solid rgba(210, 236, 255, 0.16)',
+    borderTop: '1px solid rgba(255, 255, 255, 0.24)',
+    borderRadius: '18px',
+    background: 'linear-gradient(135deg, rgba(17, 25, 40, 0.78), rgba(12, 18, 30, 0.6))',
+    boxShadow: '0 22px 60px rgba(0, 0, 0, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.14)'
   },
   title: {
     margin: 0,
-    fontSize: '1.25rem',
+    fontSize: '1.45rem',
     lineHeight: 1.2,
-    letterSpacing: 0
+    letterSpacing: 0,
+    fontWeight: 850
   },
   subtitle: {
     margin: '0.25rem 0 0',
-    color: '#a8a8a8',
-    fontSize: '0.85rem'
+    color: '#a8b3c7',
+    fontSize: '0.88rem'
   },
   tabs: {
     display: 'flex',
-    gap: '0.5rem',
-    padding: '0.75rem 1rem',
-    borderBottom: '1px solid #262626',
-    backgroundColor: '#101010',
-    overflowX: 'auto'
+    gap: '0.55rem',
+    padding: '0.55rem',
+    border: '1px solid rgba(210, 236, 255, 0.13)',
+    borderTop: '1px solid rgba(255, 255, 255, 0.2)',
+    borderRadius: '16px',
+    background: 'rgba(10, 15, 25, 0.68)',
+    boxShadow: '0 16px 42px rgba(0, 0, 0, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
+    overflowX: 'auto',
+    backdropFilter: 'blur(14px) saturate(130%)'
   },
   tabButton: {
-    backgroundColor: '#1c1c1c',
-    border: '1px solid #3a3a3a',
-    borderRadius: '4px',
-    color: '#cfcfcf',
+    background: 'rgba(255, 255, 255, 0.055)',
+    border: '1px solid rgba(210, 236, 255, 0.12)',
+    borderRadius: '12px',
+    color: '#cdd6e8',
     cursor: 'pointer',
-    fontWeight: 700,
-    minHeight: '40px',
-    padding: '0.55rem 0.75rem',
-    whiteSpace: 'nowrap'
+    fontWeight: 760,
+    minHeight: '42px',
+    padding: '0.6rem 0.85rem',
+    whiteSpace: 'nowrap',
+    transition: 'background 150ms ease, border-color 150ms ease, color 150ms ease, transform 100ms ease, box-shadow 150ms ease'
   },
   activeTabButton: {
-    border: '1px solid #00ffcc',
-    backgroundColor: '#0f2622',
-    color: '#00ffcc'
+    border: '1px solid rgba(110, 231, 255, 0.72)',
+    background: 'linear-gradient(135deg, rgba(110, 231, 255, 0.2), rgba(124, 255, 201, 0.12))',
+    color: '#f5feff',
+    boxShadow: '0 10px 24px rgba(110, 231, 255, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.22)'
   },
   tabButtonHover: {
-    backgroundColor: '#262626',
-    border: '1px solid #666'
+    background: 'rgba(255, 255, 255, 0.1)',
+    border: '1px solid rgba(210, 236, 255, 0.28)'
   },
   tabButtonActive: {
     transform: 'translateY(1px)',
-    backgroundColor: '#111'
+    background: 'rgba(255, 255, 255, 0.07)'
   },
   instructions: {
-    padding: '0.75rem 1rem',
-    backgroundColor: '#151515',
-    borderBottom: '1px solid #262626',
-    color: '#d8d8d8',
+    padding: '0.85rem 1rem',
+    background: 'rgba(16, 22, 34, 0.64)',
+    border: '1px solid rgba(210, 236, 255, 0.12)',
+    borderRadius: '14px',
+    color: '#cdd6e8',
     fontSize: '0.85rem',
-    lineHeight: 1.5
+    lineHeight: 1.5,
+    boxShadow: '0 12px 28px rgba(0, 0, 0, 0.2)'
   },
   main: {
-    minHeight: 'calc(100vh - 170px)'
+    minHeight: 'calc(100vh - 230px)'
   },
   errorPanel: {
-    margin: '1rem',
     padding: '1rem',
-    border: '1px solid #ff6b6b',
-    borderRadius: '4px',
-    backgroundColor: '#260f0f',
-    color: '#fff'
+    border: '1px solid rgba(255, 107, 122, 0.54)',
+    borderTop: '1px solid rgba(255, 255, 255, 0.22)',
+    borderRadius: '14px',
+    background: 'rgba(62, 17, 26, 0.74)',
+    color: '#fff',
+    boxShadow: '0 18px 42px rgba(0, 0, 0, 0.3)'
   },
   errorTitle: {
     margin: 0,

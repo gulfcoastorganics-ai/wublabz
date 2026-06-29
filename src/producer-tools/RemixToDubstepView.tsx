@@ -189,11 +189,11 @@ export function RemixToDubstepView() {
       <div style={styles.grid}>
         <label style={styles.control}>
           <span>SEED</span>
-          <input value={seed} onChange={(event) => setSeed(event.target.value)} style={styles.input} />
+          <input className="wub-control-input" value={seed} onChange={(event) => setSeed(event.target.value)} style={styles.input} />
         </label>
         <label style={styles.control}>
           <span>KEY OVERRIDE</span>
-          <input value={keyOverride} onChange={(event) => setKeyOverride(event.target.value)} style={styles.input} placeholder="A minor" />
+          <input className="wub-control-input" value={keyOverride} onChange={(event) => setKeyOverride(event.target.value)} style={styles.input} placeholder="A minor" />
         </label>
         <ActionButton disabled={!job?.result || uploading} onClick={applyKeyOverride}>Apply Key</ActionButton>
       </div>
@@ -203,7 +203,7 @@ export function RemixToDubstepView() {
           <strong>{job.progressInfo?.phaseLabel ?? job.step}</strong>
           <span>{job.progressInfo ? `Elapsed ${formatSeconds(job.progressInfo.elapsedSeconds)} · Phase ${formatSeconds(job.progressInfo.phaseElapsedSeconds)}` : 'Preparing job'}</span>
           {job.progressInfo?.detail && <span>{job.progressInfo.detail}</span>}
-          <progress value={job.progress} max={1} style={{ width: '100%' }} />
+          <progress className="wub-progress" value={job.progress} max={1} />
           <span>{job.status.toUpperCase()}</span>
         </div>
       )}
@@ -244,17 +244,17 @@ export function RemixToDubstepView() {
 function Timeline({ arrangement, onMute, onSolo }: { arrangement: RemixArrangement; onMute: (trackId: string) => void; onSolo: (trackId: string) => void }) {
   const totalBars = arrangement.sections.reduce((max, section) => Math.max(max, section.startBar + section.bars), 0);
   return (
-    <div style={{ marginTop: '1rem', border: '1px solid #333', borderRadius: 4, overflow: 'hidden' }}>
-      <div style={{ display: 'grid', gridTemplateColumns: `140px repeat(${totalBars}, minmax(12px, 1fr))`, background: '#171717' }}>
-        <div style={{ padding: '0.5rem', color: '#aaa' }}>Sections</div>
+    <div style={{ marginTop: '1rem', border: '1px solid rgba(210, 236, 255, 0.14)', borderTop: '1px solid rgba(255, 255, 255, 0.18)', borderRadius: 14, overflow: 'hidden', background: 'rgba(7, 12, 20, 0.72)', boxShadow: '0 16px 38px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.08)' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: `140px repeat(${totalBars}, minmax(12px, 1fr))`, background: 'rgba(255, 255, 255, 0.055)' }}>
+        <div style={{ padding: '0.6rem', color: '#a8b3c7', fontWeight: 760 }}>Sections</div>
         {arrangement.sections.map((section) => (
-          <div key={section.id} style={{ gridColumn: `${section.startBar + 2} / span ${section.bars}`, padding: '0.5rem 0.25rem', color: '#fff', borderLeft: '1px solid #333', fontSize: '0.75rem' }}>
+          <div key={section.id} style={{ gridColumn: `${section.startBar + 2} / span ${section.bars}`, padding: '0.6rem 0.35rem', color: '#f5f8ff', borderLeft: '1px solid rgba(210, 236, 255, 0.12)', fontSize: '0.75rem', fontWeight: 760 }}>
             {section.label}
           </div>
         ))}
       </div>
       {arrangement.tracks.map((track) => (
-        <div key={track.id} style={{ display: 'grid', gridTemplateColumns: `140px repeat(${totalBars}, minmax(12px, 1fr))`, minHeight: 48, borderTop: '1px solid #2b2b2b', background: '#101010' }}>
+        <div key={track.id} style={{ display: 'grid', gridTemplateColumns: `140px repeat(${totalBars}, minmax(12px, 1fr))`, minHeight: 52, borderTop: '1px solid rgba(210, 236, 255, 0.1)', background: 'rgba(255, 255, 255, 0.028)' }}>
           <div style={{ padding: '0.45rem', display: 'grid', gap: 4 }}>
             <strong style={{ color: TRACK_COLORS[track.type], fontSize: '0.78rem' }}>{track.name}</strong>
             <span>
@@ -266,14 +266,15 @@ function Timeline({ arrangement, onMute, onSolo }: { arrangement: RemixArrangeme
             <div key={clip.id} title={clip.type} style={{
               gridColumn: `${clip.startBar + 2} / span ${clip.bars}`,
               margin: '8px 2px',
-              borderRadius: 4,
-              background: TRACK_COLORS[track.type],
-              color: '#050505',
+              borderRadius: 9,
+              background: `linear-gradient(135deg, ${TRACK_COLORS[track.type]}, rgba(255,255,255,0.55))`,
+              color: '#051018',
               fontSize: '0.68rem',
               fontWeight: 800,
               padding: '0.35rem',
               overflow: 'hidden',
-              whiteSpace: 'nowrap'
+              whiteSpace: 'nowrap',
+              boxShadow: `0 8px 18px ${TRACK_COLORS[track.type]}33, inset 0 1px 0 rgba(255, 255, 255, 0.38)`
             }}>
               {clip.type}
             </div>
@@ -289,10 +290,10 @@ function miniButton(active: boolean): React.CSSProperties {
     minWidth: 28,
     minHeight: 24,
     marginRight: 4,
-    borderRadius: 4,
-    border: `1px solid ${active ? '#00ffcc' : '#444'}`,
-    background: active ? '#06352e' : '#1c1c1c',
-    color: active ? '#00ffcc' : '#ddd',
+    borderRadius: 8,
+    border: `1px solid ${active ? 'rgba(110, 231, 255, 0.72)' : 'rgba(210, 236, 255, 0.18)'}`,
+    background: active ? 'rgba(110, 231, 255, 0.16)' : 'rgba(255, 255, 255, 0.06)',
+    color: active ? '#dffcff' : '#d7deeb',
     cursor: 'pointer'
   };
 }

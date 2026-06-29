@@ -57,83 +57,92 @@ type MidiStatus = 'unavailable' | 'requesting' | 'ready' | 'blocked';
 
 // --- Styles ---
 const COLORS = {
-  bg: '#0a0a0a',
-  surface: '#1a1a1a',
-  primary: '#00ffcc',
-  secondary: '#ff00ff',
-  danger: '#ff3333',
-  text: '#ffffff',
-  textMuted: '#888888',
-  border: '#333333',
-  meter: '#00ffcc'
+  bg: '#070912',
+  surface: 'rgba(16, 22, 34, 0.72)',
+  primary: '#6ee7ff',
+  secondary: '#ff6fcf',
+  danger: '#ff6b7a',
+  text: '#f5f8ff',
+  textMuted: '#a8b3c7',
+  border: 'rgba(210, 236, 255, 0.16)',
+  meter: '#7cffc9'
 };
 
 const styles: Record<string, React.CSSProperties> = {
   container: {
-    backgroundColor: COLORS.bg,
+    background: 'linear-gradient(145deg, rgba(16, 22, 34, 0.76), rgba(9, 14, 23, 0.58))',
     color: COLORS.text,
-    minHeight: '100vh',
+    minHeight: 'calc(100vh - 230px)',
     display: 'flex',
     flexDirection: 'column',
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+    fontFamily: 'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
     padding: 'env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)',
-    maxWidth: '600px',
+    maxWidth: '680px',
     margin: '0 auto',
-    boxSizing: 'border-box'
+    boxSizing: 'border-box',
+    border: `1px solid ${COLORS.border}`,
+    borderTop: '1px solid rgba(255, 255, 255, 0.24)',
+    borderRadius: '18px',
+    overflow: 'hidden',
+    boxShadow: '0 22px 60px rgba(0, 0, 0, 0.36), inset 0 1px 0 rgba(255, 255, 255, 0.14)',
+    backdropFilter: 'blur(18px) saturate(135%)'
   },
   header: {
-    padding: '1rem',
+    padding: '1rem 1.05rem',
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
     borderBottom: `1px solid ${COLORS.border}`,
-    backgroundColor: COLORS.surface
+    background: 'rgba(255, 255, 255, 0.055)'
   },
   section: {
     padding: '1rem',
-    borderBottom: `1px solid ${COLORS.border}`
+    borderBottom: `1px solid ${COLORS.border}`,
+    background: 'linear-gradient(145deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.02))'
   },
   sectionTitle: {
     fontSize: '0.75rem',
     color: COLORS.textMuted,
     textTransform: 'uppercase',
-    letterSpacing: '0.1em',
+    letterSpacing: '0.08em',
     marginBottom: '0.75rem',
     display: 'flex',
-    justifyContent: 'space-between'
+    justifyContent: 'space-between',
+    fontWeight: 850
   },
   grid: {
     display: 'grid',
     gap: '0.5rem'
   },
   button: {
-    backgroundColor: COLORS.surface,
+    background: 'linear-gradient(145deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.045))',
     color: COLORS.text,
     border: `1px solid ${COLORS.border}`,
-    borderRadius: '4px',
+    borderRadius: '11px',
     padding: '0.75rem',
     fontSize: '0.9rem',
-    fontWeight: 'bold',
+    fontWeight: 800,
     cursor: 'pointer',
     touchAction: 'manipulation',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: '44px',
-    transition: 'background 120ms ease, border-color 120ms ease, transform 80ms ease, opacity 120ms ease'
+    boxShadow: '0 10px 22px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.12)',
+    transition: 'background 140ms ease, border-color 140ms ease, transform 90ms ease, opacity 120ms ease, box-shadow 140ms ease'
   },
-  primaryButton: { border: `1px solid ${COLORS.primary}`, color: COLORS.primary },
-  dangerButton: { backgroundColor: COLORS.danger, border: `1px solid ${COLORS.danger}`, color: '#fff' },
-  activeButton: { backgroundColor: COLORS.primary, color: COLORS.bg },
-  buttonHover: { backgroundColor: '#252525', border: '1px solid #666666' },
-  buttonActive: { transform: 'translateY(1px)', backgroundColor: '#111111' },
+  primaryButton: { border: `1px solid rgba(110, 231, 255, 0.62)`, color: '#dffcff', background: 'linear-gradient(135deg, rgba(110, 231, 255, 0.23), rgba(124, 255, 201, 0.13))' },
+  dangerButton: { background: 'linear-gradient(135deg, rgba(255, 107, 122, 0.82), rgba(255, 111, 207, 0.32))', border: `1px solid rgba(255, 107, 122, 0.72)`, color: '#fff' },
+  activeButton: { background: 'linear-gradient(135deg, rgba(110, 231, 255, 0.9), rgba(124, 255, 201, 0.72))', color: '#051018' },
+  buttonHover: { background: 'linear-gradient(145deg, rgba(255, 255, 255, 0.14), rgba(110, 231, 255, 0.08))', border: '1px solid rgba(210, 236, 255, 0.34)' },
+  buttonActive: { transform: 'translateY(1px) scale(0.99)', background: 'rgba(255, 255, 255, 0.065)' },
   buttonDisabled: { opacity: 0.45, cursor: 'not-allowed', transform: 'none' },
   slider: { width: '100%', accentColor: COLORS.primary, margin: '0.5rem 0' },
   statusIndicator: { width: '8px', height: '8px', borderRadius: '50%', marginRight: '0.5rem', display: 'inline-block' },
   connectionPanel: {
     padding: '0.75rem 1rem',
     borderBottom: `1px solid ${COLORS.border}`,
-    backgroundColor: '#101010',
+    background: 'rgba(255, 255, 255, 0.04)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -143,22 +152,25 @@ const styles: Record<string, React.CSSProperties> = {
   },
   connectionBadge: {
     border: `1px solid ${COLORS.border}`,
-    borderRadius: '4px',
+    borderRadius: '999px',
     padding: '0.35rem 0.5rem',
     fontWeight: 800,
-    letterSpacing: '0.04em'
+    letterSpacing: '0.04em',
+    background: 'rgba(255, 255, 255, 0.055)'
   },
-  meter: { height: '4px', backgroundColor: '#222', borderRadius: '2px', overflow: 'hidden', marginTop: '2px' },
-  meterFill: { height: '100%', backgroundColor: COLORS.meter, transition: 'width 0.05s ease-out' },
+  meter: { height: '5px', backgroundColor: 'rgba(255, 255, 255, 0.08)', borderRadius: '999px', overflow: 'hidden', marginTop: '4px', boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.08)' },
+  meterFill: { height: '100%', background: 'linear-gradient(90deg, #6ee7ff, #7cffc9)', transition: 'width 0.05s ease-out' },
   input: {
-    backgroundColor: '#000',
+    background: 'rgba(3, 7, 13, 0.68)',
     color: COLORS.text,
     border: `1px solid ${COLORS.border}`,
     padding: '0.5rem',
-    borderRadius: '4px',
+    borderRadius: '10px',
     fontSize: '0.8rem',
     width: '100%',
-    boxSizing: 'border-box'
+    boxSizing: 'border-box',
+    minHeight: '38px',
+    boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.06)'
   }
 };
 
@@ -598,12 +610,12 @@ export const WubPad: React.FC = () => {
   // --- Rendering Helpers ---
   const getStatusColor = () => {
     switch (status) {
-      case 'connected': return '#00ff00';
+      case 'connected': return '#7cffc9';
       case 'connecting':
-      case 'reconnecting': return 'orange';
-      case 'error': return 'red';
-      case 'tripped': return '#ff3333';
-      default: return '#555';
+      case 'reconnecting': return '#ffd166';
+      case 'error': return '#ff6b7a';
+      case 'tripped': return '#ff6b7a';
+      default: return '#657187';
     }
   };
 
@@ -623,7 +635,7 @@ export const WubPad: React.FC = () => {
   const connectionStatus = formatConnectionStatus(status);
 
   return (
-    <div style={styles.container}>
+    <div className="wub-view-mount" style={styles.container}>
       {/* Header */}
       <header style={styles.header}>
         <div style={{ display: 'flex', alignItems: 'center' }} onClick={() => setShowSettings(!showSettings)}>
@@ -676,7 +688,8 @@ export const WubPad: React.FC = () => {
                 <span style={{ color: COLORS.primary, cursor: 'pointer', fontSize: '0.65rem' }} onClick={clearPairing}>RESET PAIRING</span>
             </div>
             <div style={{ marginBottom: '1rem' }}>
-                <input 
+                <input
+                    className="wub-control-input"
                     style={styles.input} 
                     value={wsUrl} 
                     onChange={(e) => setWsUrl(e.target.value)}
@@ -724,7 +737,8 @@ export const WubPad: React.FC = () => {
         </div>
         <div style={{ marginTop: '1rem' }}>
           <div style={{ fontSize: '0.65rem', color: COLORS.textMuted, marginBottom: '0.25rem' }}>SEEK / SCRUB</div>
-          <input 
+          <input
+            className="wub-slider"
             type="range" 
             style={styles.slider} 
             min="0" max="600" step="1" 
@@ -744,7 +758,8 @@ export const WubPad: React.FC = () => {
                 {stem.label}
                 <Meter value={getLevel(stem.bus)} />
               </div>
-              <input 
+              <input
+                className="wub-slider"
                 type="range" 
                 style={styles.slider} 
                 min="0" max="1" step="0.01" 

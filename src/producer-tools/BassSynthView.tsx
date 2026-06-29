@@ -260,7 +260,7 @@ export function BassSynthView() {
 
   return (
     <ToolPanel title="Bass Synth" tone="#00cfff">
-      <canvas ref={canvasRef} style={{ ...styles.waveform, height: 150, background: '#111', border: '1px solid #333', borderRadius: '4px' }} />
+      <canvas ref={canvasRef} className="wub-canvas-frame" style={{ ...styles.waveform, height: 150, background: 'rgba(6, 11, 19, 0.78)', border: '1px solid rgba(210, 236, 255, 0.16)', borderRadius: '14px' }} />
       <div style={styles.actions}>
         <ActionButton variant="danger" onClick={panicStop}>STOP ALL</ActionButton>
         <span style={{ ...styles.control, minWidth: 150 }}>LFO HZ <strong>{resolveLfoHz(preset, engine.getBpm()).toFixed(2)}</strong></span>
@@ -305,9 +305,11 @@ export function BassSynthView() {
             key={key}
             style={{
               minWidth: 54,
-              border: latchedNotes.includes(freq) ? '1px solid #00cfff' : undefined,
-              color: latchedNotes.includes(freq) ? '#00e5ff' : undefined,
-              background: latchedNotes.includes(freq) ? '#082932' : undefined
+              minHeight: 50,
+              border: latchedNotes.includes(freq) ? '1px solid rgba(110, 231, 255, 0.74)' : undefined,
+              color: latchedNotes.includes(freq) ? '#dffcff' : undefined,
+              background: latchedNotes.includes(freq) ? 'linear-gradient(135deg, rgba(110, 231, 255, 0.28), rgba(124, 255, 201, 0.12))' : undefined,
+              boxShadow: latchedNotes.includes(freq) ? '0 0 0 1px rgba(110, 231, 255, 0.12), 0 16px 34px rgba(110, 231, 255, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.2)' : undefined
             }}
             onPointerDown={(event) => {
               event.currentTarget.setPointerCapture?.(event.pointerId);
@@ -362,7 +364,7 @@ function Range({ label, value, min, max, step, onChange }: { label: string; valu
     <label style={styles.control}>
       <span>{label}</span>
       <strong>{value < 10 ? value.toFixed(2) : Math.round(value)}</strong>
-      <input type="range" value={value} min={min} max={max} step={step} onChange={(event) => onChange(Number(event.target.value))} />
+      <input className="wub-slider" type="range" value={value} min={min} max={max} step={step} onChange={(event) => onChange(Number(event.target.value))} />
     </label>
   );
 }
@@ -371,7 +373,7 @@ function Select<T extends string>({ label, value, values, onChange }: { label: s
   return (
     <label style={styles.control}>
       <span>{label}</span>
-      <select value={value} onChange={(event) => onChange(event.target.value as T)} style={styles.input}>
+      <select className="wub-control-select" value={value} onChange={(event) => onChange(event.target.value as T)} style={styles.input}>
         {values.map((entry) => <option key={entry} value={entry}>{entry}</option>)}
       </select>
     </label>

@@ -10,7 +10,7 @@ import {
   type RemixArrangement
 } from '../src/lib/producer-tools/arranger.js';
 import { decodeWavHeader, encodeWav } from '../src/lib/export/wav.js';
-import { applyMasterGlueCompression, DEFAULT_MASTER_GLUE_RATIO, DEFAULT_MASTER_GLUE_THRESHOLD_DB, DEFAULT_MASTER_HEADROOM_DB, getPeakAmplitude, monoLowBand, normalizeChannelBuffer, normalizeTruePeakSafe, renderMasterChannelBuffer } from '../src/lib/audio/outputQuality.js';
+import { applyMasterGlueCompression, DEFAULT_LOW_MONO_HZ, DEFAULT_MASTER_CEILING_DB, DEFAULT_MASTER_GLUE_RATIO, DEFAULT_MASTER_GLUE_THRESHOLD_DB, DEFAULT_MASTER_HEADROOM_DB, DEFAULT_MASTER_MAKEUP_DB, getPeakAmplitude, monoLowBand, normalizeChannelBuffer, normalizeTruePeakSafe, renderMasterChannelBuffer } from '../src/lib/audio/outputQuality.js';
 import { applyEqualPowerFade, createSlicePlan, renderMangledBuffer, softLimitSample, type ChannelBuffer } from '../src/lib/producer-tools/mangler.js';
 import { clampFlipPrepClipSelection, estimateFlipPrepTotalSeconds, trimChannelBuffer } from '../src/lib/producer-tools/flipPrepClip.js';
 import { DEFAULT_GROWL_PRESET, STARTER_GROWL_PRESETS, driveMakeupGain, lfoSyncHz, normalizeGrowlPreset, resolveAdsrStageTimes, resolveDubstepSubFrequency, SPLIT_CROSSOVER_HZ } from '../src/lib/producer-tools/synth.js';
@@ -115,20 +115,22 @@ describe('producer tool DSP logic', () => {
       channels: [new Float32Array([0.9, -1.4, 1.2]), new Float32Array([-0.7, 1.3, -1.1])]
     });
 
-    expect(getPeakAmplitude(rendered)).toBeLessThanOrEqual(0.892);
+    expect(getPeakAmplitude(rendered)).toBeLessThanOrEqual(0.913);
+    expect(getPeakAmplitude(rendered)).toBeGreaterThan(0.86);
     expect(rendered.channels).toHaveLength(2);
   });
 
-  it('applies gentle master glue compression above threshold', () => {
+  it('applies gentle master glue compression above threshold without crushing sustained energy', () => {
     const channel = new Float32Array(4096);
     channel.fill(0.9, 128, 4096);
     const source = {
       sampleRate: 44100,
       channels: [channel]
     };
-    const compressed = applyMasterGlueCompression(source, -24, 2);
+    const compressed = applyMasterGlueCompression(source);
 
     expect(compressed.channels[0][4095]).toBeLessThan(source.channels[0][4095]);
+    expect(compressed.channels[0][4095]).toBeGreaterThan(0.82);
   });
 
   it('normalizes exports with conservative intersample headroom', () => {
@@ -137,7 +139,7 @@ describe('producer tool DSP logic', () => {
       channels: [new Float32Array([0.85, -0.85, 0.85, -0.85])]
     }, -1);
 
-    expect(getPeakAmplitude(rendered)).toBeLessThan(0.891);
+    expect(getPeakAmplitude(rendered)).toBeLessThan(0.912);
   });
 
   it('monos low-frequency stereo content for bass compatibility', () => {
@@ -186,9 +188,12 @@ describe('producer tool DSP logic', () => {
   });
 
   it('keeps the producer master present before limiting', () => {
-    expect(DEFAULT_MASTER_HEADROOM_DB).toBe(-3);
-    expect(DEFAULT_MASTER_GLUE_THRESHOLD_DB).toBe(-12);
-    expect(DEFAULT_MASTER_GLUE_RATIO).toBeLessThanOrEqual(1.35);
+    expect(DEFAULT_MASTER_HEADROOM_DB).toBe(-1.25);
+    expect(DEFAULT_MASTER_MAKEUP_DB).toBeGreaterThan(2);
+    expect(DEFAULT_MASTER_CEILING_DB).toBe(-0.8);
+    expect(DEFAULT_MASTER_GLUE_THRESHOLD_DB).toBe(-7);
+    expect(DEFAULT_MASTER_GLUE_RATIO).toBeLessThanOrEqual(1.12);
+    expect(DEFAULT_LOW_MONO_HZ).toBeLessThanOrEqual(80);
   });
 
   it('round-trips WAV metadata for rendered buffers', () => {

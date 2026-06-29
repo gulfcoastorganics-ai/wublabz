@@ -1,5 +1,17 @@
 import type { ChannelBuffer } from '../producer-tools/mangler.js';
-import { createSoftLimiterCurve, dbToLinear, DEFAULT_MASTER_GLUE_RATIO, DEFAULT_MASTER_GLUE_THRESHOLD_DB, DEFAULT_MASTER_HEADROOM_DB, DEFAULT_MASTER_LIMITER_DRIVE, DEFAULT_MASTER_SATURATION_DRIVE } from './outputQuality.js';
+import {
+  createSoftLimiterCurve,
+  dbToLinear,
+  DEFAULT_MASTER_CEILING_DB,
+  DEFAULT_MASTER_GLUE_ATTACK_SECONDS,
+  DEFAULT_MASTER_GLUE_RATIO,
+  DEFAULT_MASTER_GLUE_RELEASE_SECONDS,
+  DEFAULT_MASTER_GLUE_THRESHOLD_DB,
+  DEFAULT_MASTER_HEADROOM_DB,
+  DEFAULT_MASTER_LIMITER_DRIVE,
+  DEFAULT_MASTER_MAKEUP_DB,
+  DEFAULT_MASTER_SATURATION_DRIVE
+} from './outputQuality.js';
 
 type AudioContextLike = any;
 
@@ -8,6 +20,7 @@ let analyser: any;
 let masterHeadroom: any;
 let masterSaturation: any;
 let masterCompressor: any;
+let masterMakeup: any;
 let masterLimiter: any;
 let masterCeiling: any;
 
@@ -60,19 +73,22 @@ export function getProducerAnalyser(): any {
     masterSaturation.oversample = '4x';
     masterCompressor = context.createDynamicsCompressor();
     masterCompressor.threshold.value = DEFAULT_MASTER_GLUE_THRESHOLD_DB;
-    masterCompressor.knee.value = 18;
+    masterCompressor.knee.value = 30;
     masterCompressor.ratio.value = DEFAULT_MASTER_GLUE_RATIO;
-    masterCompressor.attack.value = 0.018;
-    masterCompressor.release.value = 0.16;
+    masterCompressor.attack.value = DEFAULT_MASTER_GLUE_ATTACK_SECONDS;
+    masterCompressor.release.value = DEFAULT_MASTER_GLUE_RELEASE_SECONDS;
+    masterMakeup = context.createGain();
+    masterMakeup.gain.value = dbToLinear(DEFAULT_MASTER_MAKEUP_DB);
     masterLimiter = context.createWaveShaper();
     masterLimiter.curve = createSoftLimiterCurve(2048, DEFAULT_MASTER_LIMITER_DRIVE);
     masterLimiter.oversample = '4x';
     masterCeiling = context.createGain();
-    masterCeiling.gain.value = dbToLinear(-1);
+    masterCeiling.gain.value = dbToLinear(DEFAULT_MASTER_CEILING_DB);
     analyser.connect(masterHeadroom);
     masterHeadroom.connect(masterSaturation);
     masterSaturation.connect(masterCompressor);
-    masterCompressor.connect(masterLimiter);
+    masterCompressor.connect(masterMakeup);
+    masterMakeup.connect(masterLimiter);
     masterLimiter.connect(masterCeiling);
     masterCeiling.connect(context.destination);
   }

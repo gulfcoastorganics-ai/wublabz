@@ -151,7 +151,7 @@ export function FlipPrepView() {
           </span>
           {job.progressInfo && <span>Phase time {formatSeconds(job.progressInfo.phaseElapsedSeconds)}</span>}
           {job.progressInfo?.detail && <span>{job.progressInfo.detail}</span>}
-          <progress value={job.progress} max={1} style={{ width: '100%' }} />
+          <progress className="wub-progress" value={job.progress} max={1} />
           <span>{job.status.toUpperCase()}</span>
         </div>
       )}
@@ -211,8 +211,8 @@ function NumberRange({ label, value, min, max, step, display, onChange }: { labe
     <label style={styles.control}>
       <span>{label}</span>
       <strong>{display}</strong>
-      <input type="range" value={value} min={min} max={max} step={step} onChange={(event) => onChange(Number(event.target.value))} />
-      <input type="number" value={value} min={min} max={max} step={step} onChange={(event) => onChange(Number(event.target.value))} style={styles.input} />
+      <input className="wub-slider" type="range" value={value} min={min} max={max} step={step} onChange={(event) => onChange(Number(event.target.value))} />
+      <input className="wub-control-input" type="number" value={value} min={min} max={max} step={step} onChange={(event) => onChange(Number(event.target.value))} style={styles.input} />
     </label>
   );
 }
@@ -221,7 +221,7 @@ function StemPreview({ label, url }: { label: string; url: string }) {
   return (
     <div style={styles.control}>
       <span>{label.toUpperCase()}</span>
-      <audio controls preload="metadata" src={url} style={{ width: '100%' }} />
+      <audio className="wub-audio" controls preload="metadata" src={url} />
     </div>
   );
 }

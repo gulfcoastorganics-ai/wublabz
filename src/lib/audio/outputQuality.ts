@@ -1,12 +1,16 @@
 import type { ChannelBuffer } from '../producer-tools/mangler.js';
 
-export const DEFAULT_NORMALIZE_TARGET_DBFS = -1;
-export const DEFAULT_MASTER_LIMITER_DRIVE = 1.15;
-export const DEFAULT_MASTER_HEADROOM_DB = -3;
-export const DEFAULT_LOW_MONO_HZ = 120;
-export const DEFAULT_MASTER_SATURATION_DRIVE = 1.08;
-export const DEFAULT_MASTER_GLUE_THRESHOLD_DB = -12;
-export const DEFAULT_MASTER_GLUE_RATIO = 1.35;
+export const DEFAULT_NORMALIZE_TARGET_DBFS = -0.8;
+export const DEFAULT_MASTER_LIMITER_DRIVE = 1.04;
+export const DEFAULT_MASTER_HEADROOM_DB = -1.25;
+export const DEFAULT_MASTER_MAKEUP_DB = 2.25;
+export const DEFAULT_MASTER_CEILING_DB = -0.8;
+export const DEFAULT_LOW_MONO_HZ = 75;
+export const DEFAULT_MASTER_SATURATION_DRIVE = 1.18;
+export const DEFAULT_MASTER_GLUE_THRESHOLD_DB = -7;
+export const DEFAULT_MASTER_GLUE_RATIO = 1.12;
+export const DEFAULT_MASTER_GLUE_ATTACK_SECONDS = 0.03;
+export const DEFAULT_MASTER_GLUE_RELEASE_SECONDS = 0.24;
 
 export function equalPowerFadeGain(index: number, length: number, fadeIn: boolean): number {
   if (length <= 0) return 1;
@@ -73,7 +77,8 @@ export function renderMasterChannelBuffer(buffer: ChannelBuffer, targetDbfs = DE
   const staged = applyMasterHeadroom(buffer);
   const saturated = applyMasterSoftSaturation(staged, DEFAULT_MASTER_SATURATION_DRIVE);
   const glued = applyMasterGlueCompression(saturated);
-  const monoLow = monoLowBand(glued, DEFAULT_LOW_MONO_HZ);
+  const madeUp = applyMasterMakeupGain(glued);
+  const monoLow = monoLowBand(madeUp, DEFAULT_LOW_MONO_HZ);
   const limited = {
     sampleRate: monoLow.sampleRate,
     channels: monoLow.channels.map((channel) => softLimitChannel(channel, DEFAULT_MASTER_LIMITER_DRIVE))
@@ -83,6 +88,14 @@ export function renderMasterChannelBuffer(buffer: ChannelBuffer, targetDbfs = DE
 
 export function applyMasterHeadroom(buffer: ChannelBuffer, headroomDb = DEFAULT_MASTER_HEADROOM_DB): ChannelBuffer {
   const gain = dbToLinear(headroomDb);
+  return applyGain(buffer, gain);
+}
+
+export function applyMasterMakeupGain(buffer: ChannelBuffer, makeupDb = DEFAULT_MASTER_MAKEUP_DB): ChannelBuffer {
+  return applyGain(buffer, dbToLinear(makeupDb));
+}
+
+function applyGain(buffer: ChannelBuffer, gain: number): ChannelBuffer {
   return {
     sampleRate: buffer.sampleRate,
     channels: buffer.channels.map((channel) => {
@@ -115,8 +128,8 @@ export function applyMasterGlueCompression(buffer: ChannelBuffer, thresholdDb = 
   const length = Math.max(0, ...buffer.channels.map((channel) => channel.length));
   let envelope = 0;
   let gain = 1;
-  const attack = coefficient(buffer.sampleRate, 0.018);
-  const release = coefficient(buffer.sampleRate, 0.16);
+  const attack = coefficient(buffer.sampleRate, DEFAULT_MASTER_GLUE_ATTACK_SECONDS);
+  const release = coefficient(buffer.sampleRate, DEFAULT_MASTER_GLUE_RELEASE_SECONDS);
 
   for (let i = 0; i < length; i++) {
     let peak = 0;
@@ -216,7 +229,7 @@ function estimateIntersamplePeak(buffer: ChannelBuffer): number {
     for (let i = 1; i < channel.length; i++) {
       const previous = channel[i - 1];
       const current = channel[i];
-      const transitionOvershoot = Math.abs(current - previous) * 0.125;
+      const transitionOvershoot = Math.abs(current - previous) * 0.02;
       peak = Math.max(peak, Math.abs(previous), Math.abs(current), Math.abs((previous + current) * 0.5), Math.max(Math.abs(previous), Math.abs(current)) + transitionOvershoot);
     }
   }
