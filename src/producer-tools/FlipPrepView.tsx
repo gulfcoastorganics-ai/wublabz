@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { HttpFlipPrepClient, OfflineFlipPrepClient, resolveFlipPrepAssetUrl, type FlipPrepJob } from '../lib/producer-tools/flipPrepApi';
+import { getWubLabzHttpUrl } from '../wubpad-integration/env';
 import { styles, ToolPanel } from './SampleManglerView';
 
 const STEP_LABELS: Record<string, string> = {
@@ -13,7 +14,7 @@ export function FlipPrepView() {
   const [error, setError] = useState('');
   const client = useMemo(() => {
     const offline = (import.meta as any).env?.VITE_FLIP_PREP_OFFLINE === 'true';
-    const baseUrl = (import.meta as any).env?.VITE_FLIP_PREP_API_URL ?? 'http://127.0.0.1:3001';
+    const baseUrl = (import.meta as any).env?.VITE_FLIP_PREP_API_URL ?? getWubLabzHttpUrl();
     return offline ? new OfflineFlipPrepClient() : new HttpFlipPrepClient(baseUrl);
   }, []);
 
@@ -45,7 +46,9 @@ export function FlipPrepView() {
       </label>
       {job && (
         <div style={{ ...styles.control, marginTop: '1rem' }}>
-          <strong>{STEP_LABELS[job.step]}</strong>
+          <strong>{job.progressInfo?.phaseLabel ?? STEP_LABELS[job.step] ?? job.step}</strong>
+          <span>{job.progressInfo ? `Elapsed ${formatSeconds(job.progressInfo.elapsedSeconds)} · Phase ${formatSeconds(job.progressInfo.phaseElapsedSeconds)}` : 'Preparing job'}</span>
+          {job.progressInfo?.detail && <span>{job.progressInfo.detail}</span>}
           <progress value={job.progress} max={1} style={{ width: '100%' }} />
           <span>{job.status.toUpperCase()}</span>
         </div>
@@ -63,4 +66,8 @@ export function FlipPrepView() {
       {(error || job?.error) && <p style={{ color: '#ff8c8c' }}>{error || job?.error}</p>}
     </ToolPanel>
   );
+}
+
+function formatSeconds(seconds: number): string {
+  return `${Math.max(0, Math.floor(seconds))}s`;
 }

@@ -17,10 +17,17 @@ export interface FlipPrepWorkerOptions {
 export async function createFlipPrepWorker(options: FlipPrepWorkerOptions = {}) {
   const config = options.config ?? loadFlipPrepWorkerConfig();
   const server = Fastify({
-    logger: options.logger ?? true,
+    logger: options.logger ?? false,
     bodyLimit: config.maxUploadBytes + 1024 * 1024
   });
-  const queue = new FlipPrepJobQueue(config, createStemSeparator(config), options.now ?? Date.now);
+  const queue = new FlipPrepJobQueue(
+    config,
+    createStemSeparator(config),
+    options.now ?? Date.now,
+    undefined,
+    undefined,
+    options.logger === false ? undefined : (message) => console.info(message)
+  );
   await mkdir(config.workDir, { recursive: true });
 
   server.addContentTypeParser(/^multipart\/form-data/i, { parseAs: 'buffer' }, (_request, body, done) => {

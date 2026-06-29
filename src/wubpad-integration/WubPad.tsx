@@ -301,23 +301,11 @@ function formatConnectionStatus(status: WubConnectionStatus): 'CONNECTING' | 'CO
 export const WubPad: React.FC = () => {
   // --- Connection State ---
   const [wsUrl, setWsUrl] = useState(() => {
-    const raw = readStorageValue(STORAGE_KEYS.WS_URL) || getWubLabzWsUrl();
-    if (raw.includes('localhost')) {
-        const migrated = raw.replace('localhost', '127.0.0.1');
-        writeStorageValue(STORAGE_KEYS.WS_URL, migrated);
-        return migrated;
-    }
-    return raw;
+    return readStorageValue(STORAGE_KEYS.WS_URL) || getWubLabzWsUrl();
   });
 
   const [urlHistory, setUrlHistory] = useState<string[]>(() => {
-    const raw = readStorageJson(STORAGE_KEYS.URL_HISTORY, [], isStringArray);
-    if (raw.some(u => u.includes('localhost'))) {
-        const migrated = raw.map(u => u.replace('localhost', '127.0.0.1'));
-        writeStorageJson(STORAGE_KEYS.URL_HISTORY, migrated);
-        return migrated;
-    }
-    return raw;
+    return readStorageJson(STORAGE_KEYS.URL_HISTORY, [], isStringArray);
   });
 
   const [status, setStatus] = useState<WubConnectionStatus>('idle');
@@ -810,7 +798,7 @@ export const WubPad: React.FC = () => {
                 </div>
               )}
               <div style={{ marginTop: '0.5rem', fontSize: '0.7rem', color: COLORS.text }}>
-                💡 Try <strong>ws://127.0.0.1:3001</strong> and confirm <strong>http://127.0.0.1:3001/health</strong> works.
+                💡 Try <strong>ws://localhost:3001</strong> and confirm <strong>http://localhost:3001/health</strong> works.
               </div>
             </div>
           )}

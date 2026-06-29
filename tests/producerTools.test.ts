@@ -10,9 +10,9 @@ import {
   type RemixArrangement
 } from '../src/lib/producer-tools/arranger.js';
 import { decodeWavHeader, encodeWav } from '../src/lib/export/wav.js';
-import { getPeakAmplitude, normalizeChannelBuffer } from '../src/lib/audio/outputQuality.js';
+import { applyMasterGlueCompression, DEFAULT_MASTER_GLUE_RATIO, DEFAULT_MASTER_GLUE_THRESHOLD_DB, DEFAULT_MASTER_HEADROOM_DB, getPeakAmplitude, monoLowBand, normalizeChannelBuffer, normalizeTruePeakSafe, renderMasterChannelBuffer } from '../src/lib/audio/outputQuality.js';
 import { applyEqualPowerFade, createSlicePlan, renderMangledBuffer, softLimitSample, type ChannelBuffer } from '../src/lib/producer-tools/mangler.js';
-import { lfoSyncHz, resolveAdsrStageTimes, SPLIT_CROSSOVER_HZ } from '../src/lib/producer-tools/synth.js';
+import { DEFAULT_GROWL_PRESET, driveMakeupGain, lfoSyncHz, resolveAdsrStageTimes, resolveDubstepSubFrequency, SPLIT_CROSSOVER_HZ } from '../src/lib/producer-tools/synth.js';
 
 function sourceBuffer(length = 32): ChannelBuffer {
   const channel = new Float32Array(length);
@@ -67,8 +67,71 @@ describe('producer tool DSP logic', () => {
     expect(getPeakAmplitude(normalized)).toBeCloseTo(0.891, 2);
   });
 
-  it('keeps the bass synth split crossover below sub fundamentals', () => {
-    expect(SPLIT_CROSSOVER_HZ).toBe(180);
+  it('keeps master renders limited after headroom and bus treatment', () => {
+    const rendered = renderMasterChannelBuffer({
+      sampleRate: 44100,
+      channels: [new Float32Array([0.9, -1.4, 1.2]), new Float32Array([-0.7, 1.3, -1.1])]
+    });
+
+    expect(getPeakAmplitude(rendered)).toBeLessThanOrEqual(0.892);
+    expect(rendered.channels).toHaveLength(2);
+  });
+
+  it('applies gentle master glue compression above threshold', () => {
+    const channel = new Float32Array(4096);
+    channel.fill(0.9, 128, 4096);
+    const source = {
+      sampleRate: 44100,
+      channels: [channel]
+    };
+    const compressed = applyMasterGlueCompression(source, -24, 2);
+
+    expect(compressed.channels[0][4095]).toBeLessThan(source.channels[0][4095]);
+  });
+
+  it('normalizes exports with conservative intersample headroom', () => {
+    const rendered = normalizeTruePeakSafe({
+      sampleRate: 44100,
+      channels: [new Float32Array([0.85, -0.85, 0.85, -0.85])]
+    }, -1);
+
+    expect(getPeakAmplitude(rendered)).toBeLessThan(0.891);
+  });
+
+  it('monos low-frequency stereo content for bass compatibility', () => {
+    const left = new Float32Array(128).fill(0.5);
+    const right = new Float32Array(128).fill(-0.5);
+    const rendered = monoLowBand({ sampleRate: 44100, channels: [left, right] }, 120);
+
+    expect(Math.abs(rendered.channels[0][127] - rendered.channels[1][127])).toBeLessThan(1);
+  });
+
+  it('gain-compensates bass drive curves', () => {
+    expect(driveMakeupGain('soft', 0.8)).toBeLessThan(1);
+    expect(driveMakeupGain('hard', 0.8)).toBeLessThan(1);
+  });
+
+  it('keeps bass synth defaults biased toward sub and low-mid body', () => {
+    expect(DEFAULT_GROWL_PRESET.subLevel).toBeGreaterThanOrEqual(0.9);
+    expect(DEFAULT_GROWL_PRESET.drive).toBeGreaterThanOrEqual(0.55);
+    expect(DEFAULT_GROWL_PRESET.unisonVoices).toBeGreaterThanOrEqual(3);
+  });
+
+  it('folds growl sub frequencies into the chest-hit octave', () => {
+    expect(resolveDubstepSubFrequency(55)).toBeCloseTo(55);
+    expect(resolveDubstepSubFrequency(98)).toBeCloseTo(49);
+    expect(resolveDubstepSubFrequency(123.47)).toBeGreaterThanOrEqual(40);
+    expect(resolveDubstepSubFrequency(123.47)).toBeLessThanOrEqual(80);
+  });
+
+  it('keeps the bass synth split crossover in the low-mid body range', () => {
+    expect(SPLIT_CROSSOVER_HZ).toBe(220);
+  });
+
+  it('keeps the producer master present before limiting', () => {
+    expect(DEFAULT_MASTER_HEADROOM_DB).toBe(-3);
+    expect(DEFAULT_MASTER_GLUE_THRESHOLD_DB).toBe(-12);
+    expect(DEFAULT_MASTER_GLUE_RATIO).toBeLessThanOrEqual(1.35);
   });
 
   it('round-trips WAV metadata for rendered buffers', () => {

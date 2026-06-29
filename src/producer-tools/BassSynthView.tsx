@@ -105,9 +105,16 @@ export function BassSynthView() {
       <div style={styles.grid}>
         <Range label="CUTOFF" value={preset.cutoffHz} min={120} max={2200} step={10} onChange={(cutoffHz) => patch({ cutoffHz })} />
         <Range label="RESONANCE" value={preset.resonance} min={1} max={30} step={1} onChange={(resonance) => patch({ resonance })} />
+        <Range label="ENV AMT" value={preset.filterEnvelopeAmount ?? DEFAULT_GROWL_PRESET.filterEnvelopeAmount} min={0} max={1} step={0.01} onChange={(filterEnvelopeAmount) => patch({ filterEnvelopeAmount })} />
+        <Range label="KEY TRACK" value={preset.keyTrack ?? DEFAULT_GROWL_PRESET.keyTrack} min={0} max={1} step={0.01} onChange={(keyTrack) => patch({ keyTrack })} />
+        <Range label="FORMANT" value={preset.formantAmount ?? DEFAULT_GROWL_PRESET.formantAmount} min={0} max={1} step={0.01} onChange={(formantAmount) => patch({ formantAmount })} />
         <Range label="LFO DEPTH" value={preset.lfoDepth} min={0} max={1} step={0.01} onChange={(lfoDepth) => patch({ lfoDepth })} />
+        <Range label="LFO 2" value={preset.secondLfoDepth ?? DEFAULT_GROWL_PRESET.secondLfoDepth} min={0} max={0.6} step={0.01} onChange={(secondLfoDepth) => patch({ secondLfoDepth })} />
+        <Range label="LFO 2 HZ" value={preset.secondLfoHz ?? DEFAULT_GROWL_PRESET.secondLfoHz} min={0.05} max={3} step={0.01} onChange={(secondLfoHz) => patch({ secondLfoHz })} />
         <Range label="DRIVE" value={preset.drive} min={0} max={1} step={0.01} onChange={(drive) => patch({ drive })} />
         <Range label="SUB" value={preset.subLevel} min={0} max={1} step={0.01} onChange={(subLevel) => patch({ subLevel })} />
+        <Range label="SPREAD" value={preset.detuneSpreadCents ?? DEFAULT_GROWL_PRESET.detuneSpreadCents} min={0} max={24} step={1} onChange={(detuneSpreadCents) => patch({ detuneSpreadCents })} />
+        <Range label="UNISON" value={preset.unisonVoices ?? DEFAULT_GROWL_PRESET.unisonVoices} min={1} max={4} step={1} onChange={(unisonVoices) => patch({ unisonVoices: Math.round(unisonVoices) })} />
         <Range label="BPM" value={preset.bpm} min={70} max={180} step={1} onChange={(bpm) => patch({ bpm })} />
         <Range label="FREE HZ" value={preset.freeHz} min={0.1} max={14} step={0.1} onChange={(freeHz) => patch({ freeHz })} />
         <Range label="A" value={preset.attack} min={0.001} max={0.3} step={0.001} onChange={(attack) => patch({ attack })} />
@@ -121,7 +128,7 @@ export function BassSynthView() {
       </div>
       <div style={styles.actions}>
         <Select label="MODE" value={preset.wobbleMode} values={['sync', 'free']} onChange={(wobbleMode) => patch({ wobbleMode })} />
-        <Select label="LFO" value={preset.lfoShape} values={['sine', 'tri', 'square', 'saw']} onChange={(lfoShape) => patch({ lfoShape })} />
+        <Select label="LFO" value={preset.lfoShape === 'saw' ? 'ramp' : preset.lfoShape} values={['sine', 'tri', 'square', 'ramp']} onChange={(lfoShape) => patch({ lfoShape })} />
         <Select label="SYNC" value={preset.syncDivision} values={['1/4', '1/8', '1/8.', '1/16']} onChange={(syncDivision) => patch({ syncDivision })} />
         <Select label="DRIVE TYPE" value={preset.driveType} values={['soft', 'hard', 'foldback']} onChange={(driveType) => patch({ driveType })} />
         <span style={{ ...styles.control, minWidth: 150 }}>LFO HZ <strong>{resolveLfoHz(preset, engine.getBpm()).toFixed(2)}</strong></span>

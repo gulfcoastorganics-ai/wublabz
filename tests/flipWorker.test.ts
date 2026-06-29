@@ -97,18 +97,20 @@ describe('Flip Prep worker pure logic', () => {
   it('runs queued job transitions with a mocked separator and analyzer', async () => {
     const workDir = await mkdtemp(path.join(os.tmpdir(), 'flip-worker-test-'));
     const separator: StemSeparator = {
-      async separate(_inputPath, outDir) {
+      async separate(_inputPath, outDir, onProgress) {
         const stems = resolveDemucsStemPaths(outDir, path.join(workDir, 'song.wav'), 'htdemucs', 'vocals');
         await Promise.all(Object.values(stems).map((stemPath) => writeFileWithDirs(stemPath, 'stem')));
+        onProgress?.(0.5);
         return stems;
       }
     };
+    const logs: string[] = [];
     const queue = new FlipPrepJobQueue(testConfig(workDir), separator, Date.now, async () => {
       return { key: 'D minor', bpm: 128 };
     }, async (_input, _vocals, output) => {
       await writeFile(output, 'wav');
       return { acapellaPath: output };
-    });
+    }, (message) => logs.push(message));
 
     const created = await queue.enqueue({
       fileName: 'song.wav',
@@ -124,6 +126,11 @@ describe('Flip Prep worker pure logic', () => {
     expect(done.step).toBe('stretching-acapella');
     expect(done.result?.key).toBe('D minor');
     expect(done.result?.stems.map((stem) => stem.name)).toEqual(['vocals', 'other']);
+    expect(done.result?.outputPaths?.vocals).toContain('vocals.mp3');
+    expect(done.result?.outputPaths?.acapella140).toContain('acapella_140.wav');
+    expect(done.progressInfo).toMatchObject({ phase: 'stretching-acapella', phaseLabel: 'Stretching acapella' });
+    expect(logs.some((message) => message.includes('processing / separating-stems'))).toBe(true);
+    expect(logs.some((message) => message.includes('complete:') && message.includes('acapella140='))).toBe(true);
     expect(queue.getFilePath(created.jobId, 'vocals')).toContain('vocals.mp3');
     expect(isFlipPrepJob(done)).toBe(true);
   });

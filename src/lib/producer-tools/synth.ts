@@ -1,23 +1,32 @@
-export type LfoShape = 'sine' | 'tri' | 'square' | 'saw';
+export type LfoShape = 'sine' | 'tri' | 'square' | 'saw' | 'ramp';
 export type WobbleMode = 'sync' | 'free';
 export type SyncDivision = '1/4' | '1/8' | '1/8.' | '1/16';
 export type DriveType = 'soft' | 'hard' | 'foldback';
 export type ProducerOscillatorType = 'sine' | 'square' | 'sawtooth' | 'triangle';
 
-export const SPLIT_CROSSOVER_HZ = 180;
+export const SPLIT_CROSSOVER_HZ = 220;
+export const DUBSTEP_SUB_MIN_HZ = 40;
+export const DUBSTEP_SUB_MAX_HZ = 80;
 export const MAX_GROWL_VOICES = 6;
 
 export interface GrowlPreset {
   osc1: ProducerOscillatorType;
   osc2: ProducerOscillatorType;
   detuneCents: number;
+  detuneSpreadCents: number;
+  unisonVoices: number;
   cutoffHz: number;
   resonance: number;
+  filterEnvelopeAmount: number;
+  keyTrack: number;
+  formantAmount: number;
   lfoShape: LfoShape;
   wobbleMode: WobbleMode;
   syncDivision: SyncDivision;
   freeHz: number;
   lfoDepth: number;
+  secondLfoDepth: number;
+  secondLfoHz: number;
   drive: number;
   driveType: DriveType;
   subLevel: number;
@@ -36,16 +45,23 @@ export const DEFAULT_GROWL_PRESET: GrowlPreset = {
   osc1: 'sawtooth',
   osc2: 'square',
   detuneCents: 12,
-  cutoffHz: 520,
-  resonance: 14,
+  detuneSpreadCents: 9,
+  unisonVoices: 3,
+  cutoffHz: 620,
+  resonance: 8,
+  filterEnvelopeAmount: 0.72,
+  keyTrack: 0.28,
+  formantAmount: 0.24,
   lfoShape: 'sine',
   wobbleMode: 'sync',
   syncDivision: '1/8',
   freeHz: 4,
-  lfoDepth: 0.7,
-  drive: 0.45,
+  lfoDepth: 0.62,
+  secondLfoDepth: 0.18,
+  secondLfoHz: 0.35,
+  drive: 0.58,
   driveType: 'soft',
-  subLevel: 0.7,
+  subLevel: 0.92,
   attack: 0.01,
   decay: 0.18,
   sustain: 0.58,
@@ -76,6 +92,13 @@ export function resolveLfoHz(preset: GrowlPreset, engineBpm?: number): number {
   return lfoSyncHz(engineBpm ?? preset.bpm, preset.syncDivision);
 }
 
+export function resolveDubstepSubFrequency(frequencyHz: number): number {
+  let subFrequency = Math.max(1, frequencyHz);
+  while (subFrequency < DUBSTEP_SUB_MIN_HZ) subFrequency *= 2;
+  while (subFrequency > DUBSTEP_SUB_MAX_HZ) subFrequency /= 2;
+  return subFrequency;
+}
+
 export interface AdsrStageTimes {
   attackEnd: number;
   decayEnd: number;
@@ -100,6 +123,24 @@ export function createDriveCurve(type: DriveType, amount: number, samples = 2048
     curve[i] = applyDrive(x, type, drive);
   }
   return curve;
+}
+
+export function driveMakeupGain(type: DriveType, amount: number): number {
+  const drive = Math.max(0, amount);
+  const curve = createDriveCurve(type, drive, 256);
+  let sum = 0;
+  let inputSum = 0;
+  for (let i = 0; i < curve.length; i++) {
+    const x = (i / (curve.length - 1)) * 2 - 1;
+    const input = Math.sin(x * Math.PI * 0.5) * 0.65;
+    const driven = applyDrive(input, type, drive);
+    inputSum += input * input;
+    sum += driven * driven;
+  }
+  const inputRms = Math.sqrt(inputSum / curve.length);
+  const drivenRms = Math.sqrt(sum / curve.length);
+  if (drivenRms <= 0) return 1;
+  return Math.max(0.28, Math.min(1, inputRms / drivenRms));
 }
 
 export function applyDrive(sample: number, type: DriveType, amount: number): number {
@@ -129,12 +170,19 @@ export function randomGrowlPreset(seed: string | number, base: GrowlPreset = DEF
     osc1: waves[Math.floor(rng() * waves.length)],
     osc2: waves[Math.floor(rng() * waves.length)],
     detuneCents: Math.round(2 + rng() * 34),
+    detuneSpreadCents: Math.round(3 + rng() * 14),
+    unisonVoices: 1 + Math.floor(rng() * 3),
     cutoffHz: Math.round(180 + rng() * 1420),
-    resonance: Math.round(4 + rng() * 24),
-    lfoShape: (['sine', 'tri', 'square', 'saw'] as LfoShape[])[Math.floor(rng() * 4)],
+    resonance: Math.round(4 + rng() * 14),
+    filterEnvelopeAmount: Number((0.35 + rng() * 0.6).toFixed(2)),
+    keyTrack: Number((rng() * 0.55).toFixed(2)),
+    formantAmount: Number((rng() * 0.55).toFixed(2)),
+    lfoShape: (['sine', 'tri', 'square', 'ramp'] as LfoShape[])[Math.floor(rng() * 4)],
     syncDivision: divisions[Math.floor(rng() * divisions.length)],
     freeHz: Number((0.5 + rng() * 11).toFixed(2)),
     lfoDepth: Number((0.35 + rng() * 0.6).toFixed(2)),
+    secondLfoDepth: Number((rng() * 0.32).toFixed(2)),
+    secondLfoHz: Number((0.12 + rng() * 1.8).toFixed(2)),
     drive: Number((0.2 + rng() * 0.75).toFixed(2)),
     driveType: drives[Math.floor(rng() * drives.length)],
     subLevel: Number((0.45 + rng() * 0.5).toFixed(2)),

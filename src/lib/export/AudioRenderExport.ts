@@ -1,5 +1,5 @@
 import type { ChannelBuffer } from '../producer-tools/mangler.js';
-import { normalizeChannelBuffer } from '../audio/outputQuality.js';
+import { renderMasterChannelBuffer } from '../audio/outputQuality.js';
 import { encodeWav } from './wav.js';
 
 export interface RenderedAudioFile {
@@ -9,7 +9,7 @@ export interface RenderedAudioFile {
 }
 
 export function renderBufferToWav(fileName: string, buffer: ChannelBuffer): RenderedAudioFile {
-  const normalized = normalizeChannelBuffer(buffer);
+  const normalized = renderMasterChannelBuffer(buffer);
   return {
     fileName,
     mimeType: 'audio/wav',

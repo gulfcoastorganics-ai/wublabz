@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
@@ -22,6 +23,12 @@ type ServerResponse = {
 };
 
 const WS_OPEN = 1;
+const WUBLABZ_DEV_ORIGINS = new Set([
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+  'http://localhost:5173',
+  'http://127.0.0.1:5173'
+]);
 
 export type WubLabzServerStartResult = 'started' | 'already-running' | 'port-in-use';
 
@@ -36,8 +43,20 @@ export interface WubLabzServerOptions {
 export async function createWubLabzServer(options: WubLabzServerOptions = {}) {
   const flipPrepMaxUploadBytes = options.flipPrepMaxUploadBytes ?? numberEnv(process.env.FLIP_PREP_MAX_UPLOAD_BYTES, 250 * 1024 * 1024);
   const server = Fastify({
-    logger: options.logger ?? true,
+    logger: options.logger ?? false,
     bodyLimit: flipPrepMaxUploadBytes + 1024 * 1024
+  });
+  await server.register(cors, {
+    origin: (origin, callback) => {
+      if (!origin || WUBLABZ_DEV_ORIGINS.has(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(null, false);
+    },
+    methods: ['GET', 'POST', 'OPTIONS'],
+    allowedHeaders: ['content-type'],
+    maxAge: 86400
   });
   await server.register(websocket);
 
@@ -93,7 +112,7 @@ export async function createWubLabzServer(options: WubLabzServerOptions = {}) {
     const clientId = randomUUID();
     const remoteAddress = req.socket?.remoteAddress ?? req.ip ?? 'unknown';
     console.info(`Client connected: ${clientId} (${remoteAddress})`);
-    server.log.info({ clientId, remoteAddress }, 'Client connected');
+    server.log.debug({ clientId, remoteAddress }, 'Client connected');
 
     const sendResponse = (response: ServerResponse) => {
       if (socket.readyState !== WS_OPEN) return;
@@ -120,8 +139,6 @@ export async function createWubLabzServer(options: WubLabzServerOptions = {}) {
     });
 
     socket.on('message', (message: unknown) => {
-      console.info(`Message received: ${clientId}`);
-      server.log.info({ clientId }, 'Message received');
       const validation = parseAndValidateInboundEvent(toMessageText(message));
 
       if (!validation.success) {
@@ -148,7 +165,7 @@ export async function createWubLabzServer(options: WubLabzServerOptions = {}) {
       activeConnections--;
       runtimeController.setActiveConnectionCount(activeConnections);
       console.info(`Client disconnected: ${clientId}`);
-      server.log.info({ clientId }, 'Client disconnected');
+      server.log.debug({ clientId }, 'Client disconnected');
       clearInterval(telemetryInterval);
     });
 

@@ -8,8 +8,8 @@ describe('WubPad Integration Env', () => {
     delete process.env.VITE_WUBLABZ_HTTP_URL;
     delete process.env.VITE_WUBLABZ_WS_URL;
 
-    expect(getWubLabzHttpUrl()).toBe('http://127.0.0.1:3001');
-    expect(getWubLabzWsUrl()).toBe('ws://127.0.0.1:3001');
+    expect(getWubLabzHttpUrl()).toBe('http://localhost:3001');
+    expect(getWubLabzWsUrl()).toBe('ws://localhost:3001');
   });
 
   it('should derive URLs from window.location when possible', () => {
@@ -24,12 +24,39 @@ describe('WubPad Integration Env', () => {
     expect(getWubLabzWsUrl()).toBe('ws://192.168.1.5:3001');
   });
 
+  it('keeps localhost as localhost when the dev UI is served from localhost', () => {
+    vi.stubGlobal('window', {
+      location: {
+        protocol: 'http:',
+        hostname: 'localhost',
+      }
+    });
+
+    expect(getWubLabzHttpUrl()).toBe('http://localhost:3001');
+    expect(getWubLabzWsUrl()).toBe('ws://localhost:3001');
+  });
+
   it('should use VITE_ variables when present', () => {
+    vi.stubGlobal('window', undefined);
     process.env.VITE_WUBLABZ_HTTP_URL = 'https://api.wub.ai';
     process.env.VITE_WUBLABZ_WS_URL = 'wss://ws.wub.ai';
 
     expect(getWubLabzHttpUrl()).toBe('https://api.wub.ai');
     expect(getWubLabzWsUrl()).toBe('wss://ws.wub.ai');
+  });
+
+  it('aligns loopback VITE_ URLs with the page host to avoid localhost and 127.0.0.1 origin splits', () => {
+    vi.stubGlobal('window', {
+      location: {
+        protocol: 'http:',
+        hostname: 'localhost',
+      }
+    });
+    process.env.VITE_WUBLABZ_HTTP_URL = 'http://127.0.0.1:3001';
+    process.env.VITE_WUBLABZ_WS_URL = 'ws://127.0.0.1:3001';
+
+    expect(getWubLabzHttpUrl()).toBe('http://localhost:3001');
+    expect(getWubLabzWsUrl()).toBe('ws://localhost:3001');
   });
 
   it('does not require process global for mock mode checks', () => {

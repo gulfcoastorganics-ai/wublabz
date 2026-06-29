@@ -7,11 +7,20 @@ export interface FlipPrepStem {
   url: string;
 }
 
+export interface FlipPrepProgressInfo {
+  phase: FlipPrepStep;
+  phaseLabel: string;
+  elapsedSeconds: number;
+  phaseElapsedSeconds: number;
+  detail?: string;
+}
+
 export interface FlipPrepResult {
   key: string;
   bpm: number;
   stems: FlipPrepStem[];
   acapella140Url: string;
+  outputPaths?: Partial<Record<FlipPrepStemName | 'acapella140', string>>;
 }
 
 export interface FlipPrepError {
@@ -36,6 +45,7 @@ export interface FlipPrepJob {
   status: FlipPrepJobStatus;
   step: FlipPrepStep;
   progress: number;
+  progressInfo?: FlipPrepProgressInfo;
   result?: FlipPrepResult;
   error?: string;
   errorDetail?: FlipPrepError;

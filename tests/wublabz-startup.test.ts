@@ -62,6 +62,82 @@ describe('WubLabz startup diagnostics', () => {
     }
   });
 
+  it('allows configured dev origins to call Flip Prep endpoints with CORS preflight', async () => {
+    const server = await createWubLabzServer({ logger: false });
+
+    try {
+      const allowed = await server.inject({
+        method: 'OPTIONS',
+        url: '/api/flip-prep/jobs',
+        headers: {
+          origin: 'http://localhost:3000',
+          'access-control-request-method': 'POST',
+          'access-control-request-headers': 'content-type'
+        }
+      });
+
+      expect(allowed.statusCode).toBe(204);
+      expect(allowed.headers['access-control-allow-origin']).toBe('http://localhost:3000');
+      expect(String(allowed.headers['access-control-allow-methods'])).toContain('POST');
+      expect(String(allowed.headers['access-control-allow-headers'])).toContain('content-type');
+
+      const alternate = await server.inject({
+        method: 'OPTIONS',
+        url: '/api/flip-prep/jobs',
+        headers: {
+          origin: 'http://127.0.0.1:5173',
+          'access-control-request-method': 'GET'
+        }
+      });
+
+      expect(alternate.statusCode).toBe(204);
+      expect(alternate.headers['access-control-allow-origin']).toBe('http://127.0.0.1:5173');
+
+      const blocked = await server.inject({
+        method: 'OPTIONS',
+        url: '/api/flip-prep/jobs',
+        headers: {
+          origin: 'http://example.com',
+          'access-control-request-method': 'POST'
+        }
+      });
+
+      expect(blocked.headers['access-control-allow-origin']).toBeUndefined();
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('adds CORS headers to Flip Prep POST responses for configured dev origins', async () => {
+    const server = await createWubLabzServer({
+      logger: false,
+      flipPrepWorkerUrl: 'http://127.0.0.1:1'
+    });
+    const boundary = 'cors-post-test';
+    const body = Buffer.concat([
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="loop.wav"\r\nContent-Type: audio/wav\r\n\r\n`),
+      Buffer.from('not-real-audio'),
+      Buffer.from(`\r\n--${boundary}--\r\n`)
+    ]);
+
+    try {
+      const response = await server.inject({
+        method: 'POST',
+        url: '/api/flip-prep/jobs',
+        headers: {
+          origin: 'http://localhost:3000',
+          'content-type': `multipart/form-data; boundary=${boundary}`
+        },
+        payload: body
+      });
+
+      expect(response.statusCode).toBe(503);
+      expect(response.headers['access-control-allow-origin']).toBe('http://localhost:3000');
+    } finally {
+      await server.close();
+    }
+  });
+
   it('allows Flip Prep uploads above Fastify default body limit for proxying', async () => {
     const server = await createWubLabzServer({
       logger: false,
@@ -86,6 +162,55 @@ describe('WubLabz startup diagnostics', () => {
       expect(response.statusCode).toBe(503);
       expect(response.json()).toMatchObject({ status: 'error', error: 'Flip Prep worker is not reachable.' });
     } finally {
+      await server.close();
+    }
+  });
+
+  it('proxies Flip Prep multipart uploads to the worker without rewriting bytes', async () => {
+    const originalFetch = globalThis.fetch;
+    const boundary = 'proxy-byte-test';
+    const body = Buffer.concat([
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="song.mp3"\r\nContent-Type: audio/mpeg\r\n\r\n`),
+      Buffer.from([0, 1, 2, 255, 128, 64, 13, 10]),
+      Buffer.from(`\r\n--${boundary}--\r\n`)
+    ]);
+    const calls: Array<{ url: string; contentType?: string; body: Buffer }> = [];
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      calls.push({
+        url,
+        contentType: init?.headers && !Array.isArray(init.headers) ? (init.headers as Record<string, string>)['content-type'] : undefined,
+        body: Buffer.from(init?.body as Buffer)
+      });
+      return {
+        status: 202,
+        headers: { get: () => 'application/json' },
+        json: async () => ({ jobId: 'job-1', status: 'queued', step: 'queued', progress: 0 })
+      };
+    });
+    const server = await createWubLabzServer({
+      logger: false,
+      flipPrepWorkerUrl: 'http://worker:3002'
+    });
+
+    try {
+      const response = await server.inject({
+        method: 'POST',
+        url: '/api/flip-prep/jobs',
+        headers: {
+          origin: 'http://localhost:3000',
+          'content-type': `multipart/form-data; boundary=${boundary}`
+        },
+        payload: body
+      });
+
+      expect(response.statusCode).toBe(202);
+      expect(calls).toHaveLength(1);
+      expect(calls[0].url).toBe('http://worker:3002/api/flip-prep/jobs');
+      expect(calls[0].contentType).toBe(`multipart/form-data; boundary=${boundary}`);
+      expect(calls[0].body).toEqual(body);
+      expect(response.json()).toMatchObject({ jobId: 'job-1', status: 'queued' });
+    } finally {
+      vi.stubGlobal('fetch', originalFetch);
       await server.close();
     }
   });
@@ -161,8 +286,8 @@ node    12345 user   19u  IPv4 12345      0t0  TCP *:3001 (LISTEN)`)
 
   it('prints actionable startup and occupied-port diagnostics', () => {
     expect(formatStartupDiagnostics(3001)).toContain('WubLabz Engine Started');
-    expect(formatStartupDiagnostics(3001)).toContain('WebSocket server listening: ws://127.0.0.1:3001');
-    expect(formatStartupDiagnostics(3001)).toContain('Health: http://127.0.0.1:3001/health');
+    expect(formatStartupDiagnostics(3001)).toContain('WebSocket server listening: ws://localhost:3001');
+    expect(formatStartupDiagnostics(3001)).toContain('Health: http://localhost:3001/health');
 
     const message = formatPortInUseDiagnostics(3001, { pid: 12345, command: 'node', source: 'lsof' });
 

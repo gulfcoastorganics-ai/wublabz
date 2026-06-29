@@ -4,11 +4,11 @@ Flip Prep is a server-side song preparation workflow behind the existing fronten
 
 ## Runtime Shape
 
-The WubLabz server keeps `/api/flip-prep/*` as the app-facing endpoint on the WubLabz API port, normally `http://127.0.0.1:3001`. It proxies those requests to the standalone TypeScript worker at `FLIP_WORKER_URL`.
+The WubLabz server keeps `/api/flip-prep/*` as the app-facing endpoint on the WubLabz API port, normally `http://localhost:3001`. It proxies those requests to the standalone TypeScript worker at `FLIP_WORKER_URL`.
 
 Canonical local defaults:
 
-- WubLabz API/client endpoint: `http://127.0.0.1:3001`
+- WubLabz API/client endpoint: `http://localhost:3001`
 - Flip Prep worker listener: `http://127.0.0.1:3002`
 
 ```text

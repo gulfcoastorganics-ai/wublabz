@@ -5,8 +5,8 @@ WubPad requires the following variables for connection:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `VITE_WUBLABZ_HTTP_URL` | WubLabz Health & API URL | `http://127.0.0.1:3001` |
-| `VITE_WUBLABZ_WS_URL` | WubLabz WebSocket URL | `ws://127.0.0.1:3001` |
+| `VITE_WUBLABZ_HTTP_URL` | WubLabz Health & API URL | `http://localhost:3001` |
+| `VITE_WUBLABZ_WS_URL` | WubLabz WebSocket URL | `ws://localhost:3001` |
 | `VITE_WUBLABZ_MOCK` | Enable Mock Engine Mode | `false` |
 
 ## Shared Event Protocol

@@ -1,4 +1,4 @@
-import type { FlipPrepError, FlipPrepJob, FlipPrepStep, FlipPrepStemName } from '../lib/producer-tools/flipPrepTypes.js';
+import type { FlipPrepError, FlipPrepJob, FlipPrepProgressInfo, FlipPrepStep, FlipPrepStemName } from '../lib/producer-tools/flipPrepTypes.js';
 
 export interface StemPaths {
   vocals: string;
@@ -41,6 +41,7 @@ export interface FlipPrepWorkerConfig {
 export interface InternalFlipPrepJob extends FlipPrepJob {
   createdAt: number;
   updatedAt: number;
+  phaseStartedAt: number;
   inputPath?: string;
   workDir?: string;
   files?: Partial<Record<FlipPrepStemName | 'acapella140', string>>;
@@ -51,6 +52,7 @@ export interface JobPatch {
   status?: InternalFlipPrepJob['status'];
   step?: FlipPrepStep;
   progress?: number;
+  progressInfo?: FlipPrepProgressInfo;
   result?: InternalFlipPrepJob['result'];
   error?: string;
   errorDetail?: FlipPrepError;

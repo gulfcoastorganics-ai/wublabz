@@ -11,6 +11,7 @@
     "preinstall": "if [ \"$npm_config_user_agent\" != \"\" ]; then if ! echo \"$npm_config_user_agent\" | grep -q \"npm/\"; then echo \"\nERROR: This project is standardized on npm. Use 'npm install'.\n\" && exit 1; fi; fi",
     "wublabz": "tsx src/wublabz/server.ts",
     "flip-worker": "tsx src/flip-worker/index.ts",
+    "flip-prep:cli": "tsx src/flip-worker/cli.ts",
     "wubpad": "vite --host 0.0.0.0 --port 3000",
     "dev": "concurrently --kill-others-on-fail -n \"ENGINE,PAD\" -c \"cyan,magenta\" \"npm run wublabz\" \"npm run wubpad\"",
     "lint": "tsc -p tsconfig.json --noEmit",
@@ -29,6 +30,7 @@
     "./package.json": "./package.json"
   },
   "dependencies": {
+    "@fastify/cors": "^8.5.0",
     "@fastify/websocket": "^10.0.1",
     "fastify": "^4.28.1",
     "react": "^19.2.7",

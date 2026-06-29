@@ -16,7 +16,7 @@
 - If running in Google AI Studio, ensure your local backend is reachable via a tunnel (e.g., ngrok) if the preview cannot reach `localhost`.
 
 ## 4. AI Studio Preview Issues
-The Google AI Studio preview runs in a sandboxed browser. It may not be able to reach `http://127.0.0.1:3001` directly if it's on a different virtual network.
+The Google AI Studio preview runs in a sandboxed browser. It may not be able to reach `http://localhost:3001` directly if it's on a different virtual network.
 - **Solution A:** Use a tunnel (ngrok) and set `VITE_WUBLABZ_HTTP_URL` to the public tunnel URL.
 - **Solution B:** Run the frontend locally alongside the backend instead of using the AI Studio preview for real-time testing.
 - **Solution C:** Use `VITE_WUBLABZ_MOCK=true` to test the UI logic without a real backend.

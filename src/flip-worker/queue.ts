@@ -1,7 +1,7 @@
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { FLIP_PREP_API_PREFIX, createFlipPrepError, type FlipPrepJob, type FlipPrepStemName } from '../lib/producer-tools/flipPrepTypes.js';
+import { FLIP_PREP_API_PREFIX, createFlipPrepError, type FlipPrepJob, type FlipPrepResult, type FlipPrepStemName } from '../lib/producer-tools/flipPrepTypes.js';
 import { analyzeOriginal, stretchAcapella } from './analyze.js';
 import { FlipWorkerError, mapProcessError } from './errors.js';
 import type { FlipPrepWorkerConfig, InternalFlipPrepJob, JobPatch, StemSeparator } from './types.js';
@@ -10,6 +10,14 @@ import type { ParsedUpload } from './upload.js';
 
 type AnalyzeFn = (inputPath: string, timeoutMs: number) => Promise<AudioAnalysisResult>;
 type StretchFn = (inputPath: string, vocalsPath: string, outputPath: string, bpm: number, timeoutMs: number) => Promise<{ acapellaPath: string }>;
+export type FlipPrepJobLogger = (message: string, job: FlipPrepJob) => void;
+
+const STEP_LABELS: Record<FlipPrepJob['step'], string> = {
+  queued: 'Queued',
+  'separating-stems': 'Separating stems',
+  'detecting-key-bpm': 'Detecting key and BPM',
+  'stretching-acapella': 'Stretching acapella'
+};
 
 export class FlipPrepJobQueue {
   private jobs = new Map<string, InternalFlipPrepJob>();
@@ -21,7 +29,8 @@ export class FlipPrepJobQueue {
     private readonly separator: StemSeparator,
     private readonly now: () => number = Date.now,
     private readonly analyzer: AnalyzeFn = analyzeOriginal,
-    private readonly stretcher: StretchFn = stretchAcapella
+    private readonly stretcher: StretchFn = stretchAcapella,
+    private readonly logger?: FlipPrepJobLogger
   ) {}
 
   async enqueue(upload: ParsedUpload): Promise<FlipPrepJob> {
@@ -38,10 +47,12 @@ export class FlipPrepJobQueue {
       progress: 0,
       createdAt: this.now(),
       updatedAt: this.now(),
+      phaseStartedAt: this.now(),
       inputPath,
       workDir: jobDir
     };
     this.jobs.set(jobId, job);
+    this.patch(jobId, { progressInfo: this.progressInfo(job, 'Waiting for worker slot') });
     this.pending.push(jobId);
     this.pump();
     return publicJob(job);
@@ -79,7 +90,10 @@ export class FlipPrepJobQueue {
       this.patch(job.jobId, { status: 'processing', step: 'separating-stems', progress: 0.05 });
       const analysisPromise = this.analyzer(job.inputPath, this.config.demucsTimeoutMs);
       const stemsPromise = this.separator.separate(job.inputPath, path.join(job.workDir, 'demucs'), (progress) => {
-        this.patch(job.jobId, { progress: 0.05 + progress * 0.55 });
+        this.patch(job.jobId, {
+          progress: 0.05 + progress * 0.55,
+          progressInfo: this.progressInfo(this.jobs.get(job.jobId) ?? job, `Demucs ${Math.round(progress * 100)}%`)
+        });
       });
       const [stemsResult, analysisResult] = await Promise.allSettled([stemsPromise, analysisPromise]);
       if (stemsResult.status === 'rejected') {
@@ -113,7 +127,8 @@ export class FlipPrepJobQueue {
               name: stem,
               url: `${FLIP_PREP_API_PREFIX}/jobs/${job.jobId}/files/${stem}`
             })),
-          acapella140Url: `${FLIP_PREP_API_PREFIX}/jobs/${job.jobId}/files/acapella140`
+          acapella140Url: `${FLIP_PREP_API_PREFIX}/jobs/${job.jobId}/files/acapella140`,
+          outputPaths: { ...stems, acapella140: stretch.acapellaPath }
         }
       });
     } catch (error) {
@@ -133,12 +148,22 @@ export class FlipPrepJobQueue {
   patch(jobId: string, patch: JobPatch): void {
     const current = this.jobs.get(jobId);
     if (!current) return;
-    this.jobs.set(jobId, {
+    const stepChanged = Boolean(patch.step && patch.step !== current.step);
+    const statusChanged = Boolean(patch.status && patch.status !== current.status);
+    const now = this.now();
+    const next: InternalFlipPrepJob = {
       ...current,
       ...patch,
       files: patch.files ? { ...current.files, ...patch.files } : current.files,
-      updatedAt: this.now()
-    });
+      phaseStartedAt: stepChanged ? now : current.phaseStartedAt,
+      updatedAt: now
+    };
+    next.progressInfo = patch.progressInfo ?? this.progressInfo(next);
+    this.jobs.set(jobId, next);
+
+    if (stepChanged || statusChanged) {
+      this.logJobTransition(next);
+    }
   }
 
   async cleanupExpiredJobs(): Promise<number> {
@@ -157,6 +182,31 @@ export class FlipPrepJobQueue {
     await Promise.all(removals);
     return removed;
   }
+
+  private progressInfo(job: InternalFlipPrepJob, detail?: string) {
+    const now = this.now();
+    return {
+      phase: job.step,
+      phaseLabel: STEP_LABELS[job.step],
+      elapsedSeconds: Math.max(0, Math.floor((now - job.createdAt) / 1000)),
+      phaseElapsedSeconds: Math.max(0, Math.floor((now - job.phaseStartedAt) / 1000)),
+      ...(detail ? { detail } : {})
+    };
+  }
+
+  private logJobTransition(job: InternalFlipPrepJob): void {
+    if (!this.logger) return;
+    const publicState = publicJob(job);
+    if (job.status === 'done') {
+      this.logger(`Flip Prep job ${job.jobId} complete: ${formatOutputPaths(job.result?.outputPaths)}`, publicState);
+      return;
+    }
+    if (job.status === 'error') {
+      this.logger(`Flip Prep job ${job.jobId} failed: ${job.error ?? 'unknown error'}`, publicState);
+      return;
+    }
+    this.logger(`Flip Prep job ${job.jobId}: ${job.status} / ${job.step}`, publicState);
+  }
 }
 
 export function publicJob(job: InternalFlipPrepJob): FlipPrepJob {
@@ -165,6 +215,7 @@ export function publicJob(job: InternalFlipPrepJob): FlipPrepJob {
     status: job.status,
     step: job.step,
     progress: job.progress,
+    progressInfo: job.progressInfo,
     ...(job.result ? { result: job.result } : {}),
     ...(job.error ? { error: job.error } : {}),
     ...(job.errorDetail ? { errorDetail: job.errorDetail } : {})
@@ -184,4 +235,12 @@ function fileKey(name: string): FlipPrepStemName | 'acapella140' | undefined {
     return name;
   }
   return undefined;
+}
+
+function formatOutputPaths(paths: FlipPrepResult['outputPaths']): string {
+  if (!paths || typeof paths !== 'object') return 'no output paths';
+  return Object.entries(paths)
+    .filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+    .map(([name, filePath]) => `${name}=${filePath}`)
+    .join(', ');
 }

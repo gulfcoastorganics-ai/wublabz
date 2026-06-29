@@ -84,10 +84,10 @@ export function isAddressInUseError(error: unknown): boolean {
 export function formatStartupDiagnostics(port: number): string {
   return [
     'WubLabz Engine Started',
-    `HTTP: http://127.0.0.1:${port}`,
-    `WebSocket: ws://127.0.0.1:${port}`,
-    `WebSocket server listening: ws://127.0.0.1:${port}`,
-    `Health: http://127.0.0.1:${port}/health`
+    `HTTP: http://localhost:${port}`,
+    `WebSocket: ws://localhost:${port}`,
+    `WebSocket server listening: ws://localhost:${port}`,
+    `Health: http://localhost:${port}/health`
   ].join('\n');
 }
 
@@ -106,7 +106,7 @@ export function formatPortInUseDiagnostics(port: number, owner: PortOwner | null
 
   lines.push(`Or run WubLabz on another port: PORT=${port + 1} npm run wublabz`);
   lines.push(
-    `If WubPad should use that port, set VITE_WUBLABZ_HTTP_URL=http://127.0.0.1:${port + 1} and VITE_WUBLABZ_WS_URL=ws://127.0.0.1:${port + 1}.`
+    `If WubPad should use that port, set VITE_WUBLABZ_HTTP_URL=http://localhost:${port + 1} and VITE_WUBLABZ_WS_URL=ws://localhost:${port + 1}.`
   );
 
   return lines.join('\n');

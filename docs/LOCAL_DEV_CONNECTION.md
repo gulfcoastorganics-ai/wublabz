@@ -8,13 +8,13 @@ In this repository, run:
 npm install
 npm run server
 ```
-The server will start on `http://127.0.0.1:3001` and expose a WebSocket at `ws://127.0.0.1:3001`.
+The server will start on `http://localhost:3001` and expose a WebSocket at `ws://localhost:3001`.
 
 ## 2. Configure WubPad
 Ensure WubPad has the following environment variables (usually in a `.env.local` file):
 ```env
-VITE_WUBLABZ_HTTP_URL=http://127.0.0.1:3001
-VITE_WUBLABZ_WS_URL=ws://127.0.0.1:3001
+VITE_WUBLABZ_HTTP_URL=http://localhost:3001
+VITE_WUBLABZ_WS_URL=ws://localhost:3001
 ```
 
 ## 3. Start WubPad

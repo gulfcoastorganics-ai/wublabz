@@ -14,6 +14,7 @@ import {
   type RemixTrackType
 } from '../lib/producer-tools/arranger';
 import { WubLabzEngine } from '../lib/WubLabzEngine';
+import { getWubLabzHttpUrl } from '../wubpad-integration/env';
 import { styles, toArrayBuffer, ToolPanel } from './SampleManglerView';
 
 const TRACK_COLORS: Record<RemixTrackType, string> = {
@@ -33,7 +34,7 @@ export function RemixToDubstepView() {
   const activeSources = useRef<any[]>([]);
   const client = useMemo(() => {
     const offline = (import.meta as any).env?.VITE_FLIP_PREP_OFFLINE === 'true';
-    const baseUrl = (import.meta as any).env?.VITE_FLIP_PREP_API_URL ?? 'http://127.0.0.1:3001';
+    const baseUrl = (import.meta as any).env?.VITE_FLIP_PREP_API_URL ?? getWubLabzHttpUrl();
     return offline ? new OfflineFlipPrepClient() : new HttpFlipPrepClient(baseUrl);
   }, []);
 
@@ -171,7 +172,9 @@ export function RemixToDubstepView() {
 
       {job && (
         <div style={{ ...styles.control, marginTop: '1rem' }}>
-          <strong>{job.step}</strong>
+          <strong>{job.progressInfo?.phaseLabel ?? job.step}</strong>
+          <span>{job.progressInfo ? `Elapsed ${formatSeconds(job.progressInfo.elapsedSeconds)} · Phase ${formatSeconds(job.progressInfo.phaseElapsedSeconds)}` : 'Preparing job'}</span>
+          {job.progressInfo?.detail && <span>{job.progressInfo.detail}</span>}
           <progress value={job.progress} max={1} style={{ width: '100%' }} />
           <span>{job.status.toUpperCase()}</span>
         </div>
@@ -272,4 +275,8 @@ function downloadBytes(bytes: Uint8Array, fileName: string, mimeType: string) {
   anchor.download = fileName;
   anchor.click();
   URL.revokeObjectURL(url);
+}
+
+function formatSeconds(seconds: number): string {
+  return `${Math.max(0, Math.floor(seconds))}s`;
 }

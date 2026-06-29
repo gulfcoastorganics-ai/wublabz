@@ -109,8 +109,8 @@ function App() {
       </nav>
 
       <section style={styles.instructions} aria-label="Connection instructions">
-        <strong>Connection:</strong> keep the engine running at <code>http://127.0.0.1:3001/health</code>, open this frontend at{' '}
-        <code>http://localhost:3000</code>, and connect WubPad settings to <code>ws://127.0.0.1:3001</code>.
+        <strong>Connection:</strong> keep the engine running at <code>http://localhost:3001/health</code>, open this frontend at{' '}
+        <code>http://localhost:3000</code>, and connect WubPad settings to <code>ws://localhost:3001</code>.
       </section>
 
       <main style={styles.main}>
