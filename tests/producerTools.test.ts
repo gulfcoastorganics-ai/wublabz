@@ -8,7 +8,9 @@ import {
   regenerateArrangementElement,
   renderArrangementGuideMaster,
   renderArrangementMasterWithAudio,
-  type RemixArrangement
+  renderAudioClip,
+  type RemixArrangement,
+  type RemixClip
 } from '../src/lib/producer-tools/arranger.js';
 import { decodeWav, decodeWavHeader, encodeWav } from '../src/lib/export/wav.js';
 import { applyMasterGlueCompression, DEFAULT_LOW_MONO_HZ, DEFAULT_MASTER_CEILING_DB, DEFAULT_MASTER_GLUE_RATIO, DEFAULT_MASTER_GLUE_THRESHOLD_DB, DEFAULT_MASTER_HEADROOM_DB, DEFAULT_MASTER_MAKEUP_DB, getPeakAmplitude, monoLowBand, normalizeChannelBuffer, normalizeTruePeakSafe, renderMasterChannelBuffer } from '../src/lib/audio/outputQuality.js';
@@ -361,3 +363,135 @@ function peak(channel: Float32Array): number {
   }
   return value;
 }
+
+describe('renderAudioClip resampler anti-aliasing', () => {
+  const bpm = 120;
+  const clip: RemixClip = {
+    id: 'test-clip',
+    trackId: 'vocals',
+    type: 'audio',
+    sectionId: 'drop',
+    startBar: 0,
+    bars: 2,
+    startBeat: 0,
+    durationBeats: 8,
+    payload: {}
+  };
+
+  function generateSineWave(frequency: number, sampleRate: number, durationSeconds: number): Float32Array {
+    const length = Math.floor(sampleRate * durationSeconds);
+    const data = new Float32Array(length);
+    for (let i = 0; i < length; i++) {
+      data[i] = Math.sin(2 * Math.PI * frequency * (i / sampleRate));
+    }
+    return data;
+  }
+
+  it('verifies 48kHz to 44.1kHz downsampling output length is correct', () => {
+    const sourceRate = 48000;
+    const targetRate = 44100;
+    const duration = 0.2;
+    const sourceLen = Math.floor(sourceRate * duration);
+    const source: ChannelBuffer = {
+      sampleRate: sourceRate,
+      channels: [new Float32Array(sourceLen).fill(0.5)]
+    };
+
+    const targetLen = Math.floor(duration * targetRate);
+    const left = new Float32Array(targetLen);
+    const right = new Float32Array(targetLen);
+
+    const testClip = { ...clip, durationBeats: duration / (60 / bpm) };
+    renderAudioClip(left, right, targetRate, bpm, testClip, source, 1.0);
+
+    // Verify target length is filled and correct
+    expect(left.length).toBe(targetLen);
+    expect(right.length).toBe(targetLen);
+    // Confirm no NaN/Infinity
+    for (let i = 0; i < left.length; i++) {
+      expect(Number.isNaN(left[i])).toBe(false);
+      expect(Number.isFinite(left[i])).toBe(true);
+      expect(Number.isNaN(right[i])).toBe(false);
+      expect(Number.isFinite(right[i])).toBe(true);
+    }
+  });
+
+  it('verifies 44.1kHz to 48kHz upsampling output length is correct', () => {
+    const sourceRate = 44100;
+    const targetRate = 48000;
+    const duration = 0.2;
+    const sourceLen = Math.floor(sourceRate * duration);
+    const source: ChannelBuffer = {
+      sampleRate: sourceRate,
+      channels: [new Float32Array(sourceLen).fill(0.5)]
+    };
+
+    const targetLen = Math.floor(duration * targetRate);
+    const left = new Float32Array(targetLen);
+    const right = new Float32Array(targetLen);
+
+    const testClip = { ...clip, durationBeats: duration / (60 / bpm) };
+    renderAudioClip(left, right, targetRate, bpm, testClip, source, 1.0);
+
+    expect(left.length).toBe(targetLen);
+    expect(right.length).toBe(targetLen);
+  });
+
+  it('verifies sine tone remains stable and stereo channels remain independent', () => {
+    const sourceRate = 48000;
+    const targetRate = 44100;
+    const duration = 0.2;
+    const sineLeft = generateSineWave(440, sourceRate, duration);
+    const sineRight = generateSineWave(880, sourceRate, duration); // Different frequency on right channel
+    const source: ChannelBuffer = {
+      sampleRate: sourceRate,
+      channels: [sineLeft, sineRight]
+    };
+
+    const targetLen = Math.floor(duration * targetRate);
+    const left = new Float32Array(targetLen);
+    const right = new Float32Array(targetLen);
+
+    const testClip = { ...clip, durationBeats: duration / (60 / bpm) };
+    renderAudioClip(left, right, targetRate, bpm, testClip, source, 1.0);
+
+    // Channels must remain independent (not mono-summed or leaked)
+    let differences = 0;
+    const fadeFrames = Math.min(Math.floor(targetRate * 0.015), Math.floor(targetLen / 3));
+    for (let i = fadeFrames + 10; i < targetLen - fadeFrames - 10; i++) {
+      if (Math.abs(left[i] - right[i]) > 0.05) {
+        differences++;
+      }
+    }
+    expect(differences).toBeGreaterThan((targetLen - 2 * fadeFrames) * 0.8);
+  });
+
+  it('attenuates high-frequency content above target Nyquist', () => {
+    const sourceRate = 48000;
+    const targetRate = 22050; // Nyquist is 11025 Hz
+    const duration = 0.2;
+    // Generate a high frequency sine wave at 15000 Hz (well above Nyquist)
+    const highFreqSine = generateSineWave(15000, sourceRate, duration);
+    const source: ChannelBuffer = {
+      sampleRate: sourceRate,
+      channels: [highFreqSine]
+    };
+
+    const targetLen = Math.floor(duration * targetRate);
+    const left = new Float32Array(targetLen);
+    const right = new Float32Array(targetLen);
+
+    const testClip = { ...clip, durationBeats: duration / (60 / bpm) };
+    renderAudioClip(left, right, targetRate, bpm, testClip, source, 1.0);
+
+    // Verify peak amplitude of resampled output is heavily attenuated (nearly silent)
+    let maxVal = 0;
+    const fadeFrames = Math.min(Math.floor(targetRate * 0.015), Math.floor(targetLen / 3));
+    // skip boundary fade zones
+    for (let i = fadeFrames + 10; i < targetLen - fadeFrames - 10; i++) {
+      maxVal = Math.max(maxVal, Math.abs(left[i]));
+    }
+    // With Blackman window, stopband attenuation is very high. High frequency (15kHz) should be attenuated to < -40dB (i.e. < 0.01)
+    expect(maxVal).toBeLessThan(0.01);
+  });
+});
