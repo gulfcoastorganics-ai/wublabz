@@ -201,12 +201,13 @@ export function createGrowlVoice(
       postFilter.gain.cancelScheduledValues(safeStartTime);
       postFilter.gain.setValueAtTime(0, safeStartTime);
       postFilter.gain.linearRampToValueAtTime(0.15 + formantAmount * 0.45, ampTimes.attackEnd);
-      for (const node of oscillators) {
-        node.start(safeStartTime);
+      for (const node of [...oscillators, sub, lfo, secondLfo]) {
+        try {
+          node.start(safeStartTime);
+        } catch {
+          // Already started.
+        }
       }
-      sub.start(safeStartTime);
-      lfo.start(safeStartTime);
-      secondLfo.start(safeStartTime);
       if (currentFrequencyHz !== targetFrequencyHz) {
         glideToFrequency(targetFrequencyHz, safeStartTime, preset.glideSeconds ?? 0);
       }
