@@ -835,7 +835,7 @@ function renderBassClip(left: Float32Array, right: Float32Array, sampleRate: num
   const beatSeconds = 60 / bpm;
   const startFrame = Math.floor(clip.startBeat * beatSeconds * sampleRate);
   const notes: BassNotePayload[] = Array.isArray(clip.payload.notes) ? (clip.payload.notes as BassNotePayload[]) : [];
-  const swingRatio = 0.04; // align to standard default swing ratio
+  const swingRatio = (clip.payload.swing as number | undefined) ?? 0.04;
   
   for (const note of notes) {
     const stepInBar = Math.round((note.startBeat % 4) / 0.25) % 16;
