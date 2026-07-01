@@ -5,7 +5,7 @@ import { DEFAULT_GROWL_PRESET, randomGrowlPreset, resolveDubstepSubFrequency, lf
 export type RemixSectionKind = 'intro' | 'buildup' | 'drop' | 'breakdown' | 'second-drop' | 'outro';
 export type RemixTrackType = 'acapella' | 'drums' | 'bass' | 'fills';
 export type RemixClipType = 'audio' | 'drum-pattern' | 'bass-growl' | 'mangler-fill';
-export type DrumPatternKind = 'sparse-intro' | 'buildup-riser' | 'half-time-drop' | 'breakdown-space' | 'outro-tail';
+export type DrumPatternKind = 'sparse-intro' | 'buildup-riser' | 'half-time-drop' | 'half-time-drop-2' | 'breakdown-space' | 'outro-tail';
 
 export interface RemixSection {
   id: string;
@@ -93,18 +93,18 @@ const SECTION_BARS: Array<[RemixSectionKind, string, number]> = [
 // Energy gain ramps [startMult, endMult] — the contrast IS the genre
 const SECTION_ENERGY: Record<RemixSectionKind, [number, number]> = {
   'intro':       [0.42, 0.62],
-  'buildup':     [0.66, 1.00], // rises continuously into the drop
-  'drop':        [1.00, 1.00],
+  'buildup':     [0.66, 0.85], // rises, but leaves headroom for the drop
+  'drop':        [1.15, 1.15], // obvious energy jump
   'breakdown':   [0.30, 0.22], // pulled WAY back
-  'second-drop': [1.00, 1.00],
+  'second-drop': [1.15, 1.15],
   'outro':       [0.68, 0.16]  // fades out
 };
 
 // Per-track base level — sets relative balance: vocal on top, fills as texture
 const TRACK_LEVEL: Record<RemixTrackType, number> = {
-  'acapella': 0.82,
-  'drums':    0.72,
-  'bass':     0.65,
+  'acapella': 1.15, // boosted to sit clearly on top
+  'drums':    0.85,
+  'bass':     0.65, // keep at 0.65 but duck heavily under vocal
   'fills':    0.48
 };
 
@@ -351,6 +351,20 @@ function mixArrangementStemsWithContext(stems: ChannelBuffer[], trackTypes: Remi
   const beatSeconds = 60 / arrangement.targetBpm;
   const MIX_SAFETY = 0.92; // headroom for 4 tracks summing
 
+  const acapellaIdx = trackTypes.indexOf('acapella');
+  const acapellaStem = acapellaIdx >= 0 ? stems[acapellaIdx] : null;
+  const vocalEnv = new Float32Array(frames);
+  if (acapellaStem) {
+    let env = 0;
+    const attack = Math.exp(-1.0 / (0.005 * sampleRate)); // 5ms attack
+    const release = Math.exp(-1.0 / (0.050 * sampleRate)); // 50ms release
+    for (let i = 0; i < frames; i++) {
+      const v = Math.abs(acapellaStem.channels[0]?.[i] ?? 0);
+      env = v > env ? attack * env + (1 - attack) * v : release * env + (1 - release) * v;
+      vocalEnv[i] = env;
+    }
+  }
+
   for (let k = 0; k < stems.length; k++) {
     const stem = stems[k];
     const trackType = trackTypes[k];
@@ -373,7 +387,14 @@ function mixArrangementStemsWithContext(stems: ChannelBuffer[], trackTypes: Remi
       const seg = segments[si];
       const span = seg.endFrame - seg.startFrame;
       const t = span > 0 ? Math.max(0, Math.min(1, (i - seg.startFrame) / span)) : 0;
-      const gain = (seg.startGain + (seg.endGain - seg.startGain) * t) * MIX_SAFETY;
+      let gain = (seg.startGain + (seg.endGain - seg.startGain) * t) * MIX_SAFETY;
+
+      if (acapellaStem && trackType === 'bass') {
+        gain *= Math.max(0.3, 1.0 - vocalEnv[i] * 1.8); // Duck bass under vocal
+      } else if (acapellaStem && trackType === 'drums') {
+        gain *= Math.max(0.7, 1.0 - vocalEnv[i] * 0.5); // Duck drums lightly
+      }
+
       left[i]  += (stem.channels[0]?.[i] ?? 0) * gain;
       right[i] += (stem.channels[1]?.[i] ?? stem.channels[0]?.[i] ?? 0) * gain;
     }
@@ -483,8 +504,12 @@ function applyEnergyDeltaSuckOutAndImpacts(
       const pitchSweep = 1.0 + 0.4 * Math.exp(-95 * t); // fast pitch sweep (impact slam)
       subPhase += (2 * Math.PI * (fSub * pitchSweep)) / sampleRate;
       const subSample = Math.sin(subPhase) * env * 0.70; // massive low-end weight
-      left[frame] += subSample;
-      right[frame] += subSample;
+      
+      const duckT = i / sampleRate;
+      const duckGain = duckT < 0.12 ? Math.pow(duckT / 0.12, 2.0) : 1.0; // sidechain under kick
+      
+      left[frame] += subSample * duckGain;
+      right[frame] += subSample * duckGain;
     }
 
     // 2.3 Slam Low Impact Boom (swept lowpass filtered noise)
@@ -608,7 +633,8 @@ function createClip(trackId: string, type: RemixClipType, section: Pick<RemixSec
 function drumPatternForSection(kind: RemixSectionKind): DrumPatternKind {
   if (kind === 'intro') return 'sparse-intro';
   if (kind === 'buildup') return 'buildup-riser';
-  if (kind === 'drop' || kind === 'second-drop') return 'half-time-drop';
+  if (kind === 'drop') return 'half-time-drop';
+  if (kind === 'second-drop') return 'half-time-drop-2';
   if (kind === 'breakdown') return 'breakdown-space';
   return 'outro-tail';
 }
@@ -636,7 +662,8 @@ function renderDrumClip(left: Float32Array, right: Float32Array, sampleRate: num
 
     if (pattern === 'sparse-intro') drumSparseIntro(left, right, frame, sampleRate, barIndex, totalBars, stepInBar, vel);
     else if (pattern === 'buildup-riser') drumBuildup(left, right, frame, sampleRate, barIndex, totalBars, stepInBar, vel);
-    else if (pattern === 'half-time-drop') drumDrop(left, right, frame, sampleRate, barIndex, totalBars, stepInBar, vel);
+    else if (pattern === 'half-time-drop') drumDrop(left, right, frame, sampleRate, barIndex, totalBars, stepInBar, vel, false);
+    else if (pattern === 'half-time-drop-2') drumDrop(left, right, frame, sampleRate, barIndex, totalBars, stepInBar, vel, true);
     else if (pattern === 'breakdown-space') drumBreakdown(left, right, frame, sampleRate, barIndex, totalBars, stepInBar, vel);
     else if (pattern === 'outro-tail') drumOutro(left, right, frame, sampleRate, barIndex, totalBars, stepInBar, vel);
   }
@@ -759,7 +786,7 @@ function drumBuildup(
 // half-time-drop: hard kick + snare backbone, open hat offbeat, 1/16th groove hats, fills every 4 bars
 function drumDrop(
   left: Float32Array, right: Float32Array, frame: number, sampleRate: number,
-  barIndex: number, totalBars: number, stepInBar: number, vel: number
+  barIndex: number, totalBars: number, stepInBar: number, vel: number, isSecondDrop: boolean = false
 ): void {
   const isFillBar = (barIndex + 1) % 4 === 0;
   const isLastBar = barIndex === totalBars - 1;
@@ -776,7 +803,9 @@ function drumDrop(
 
   const openHatGrid = [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0]; // open hat on 2-and, 4-and
 
-  const closedHatGrid = [0, 1, 1, 0, 1, 1, 0, 1, 0, 1, 1, 0, 1, 1, 0, 1]; // 1/16th groove driving pocket
+  const closedHatGrid = isSecondDrop
+    ? [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1] // busier 16ths for Drop 2
+    : [0, 1, 1, 0, 1, 1, 0, 1, 0, 1, 1, 0, 1, 1, 0, 1]; // 1/16th groove driving pocket
 
   if (kickGrid[stepInBar]) {
     const isAccent = stepInBar === 0;
@@ -970,7 +999,7 @@ function getSidechainGain(frame: number, sampleRate: number, bpm: number): numbe
   const scFrames = Math.floor(scDuration * sampleRate);
   if (minDistanceFrames < scFrames) {
     const t = minDistanceFrames / scFrames;
-    return Math.pow(t, 2.0); // smooth exponential recovery
+    return Math.pow(t, 4.0); // more aggressive ducking under kick
   }
   return 1.0;
 }
