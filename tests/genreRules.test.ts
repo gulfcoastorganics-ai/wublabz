@@ -8,7 +8,7 @@ import {
   TRANSITION_RULES,
   type DropVariationInput
 } from '../src/lib/producer-tools/genreRules.js';
-import { generateRemixArrangement, isMidiInKey, keyToMidiScale, type RemixTrack } from '../src/lib/producer-tools/arranger.js';
+import { explainArrangementDecisions, generateRemixArrangement, isMidiInKey, keyToMidiScale, type RemixTrack } from '../src/lib/producer-tools/arranger.js';
 import type { SyncDivision } from '../src/lib/producer-tools/synth.js';
 
 const flipPrep = {
@@ -126,5 +126,27 @@ describe('transitions: pre-drop suck-out / riser architecture', () => {
   it('ramps energy down to a floor strictly between silence and full volume', () => {
     expect(TRANSITION_RULES.energyDeltaFloor).toBeGreaterThan(0);
     expect(TRANSITION_RULES.energyDeltaFloor).toBeLessThan(1);
+  });
+});
+
+describe('explainArrangementDecisions: arranger self-verification', () => {
+  it('traces harmony, drop variation, section energy, and mix rules for a real arrangement', () => {
+    const arrangement = generateRemixArrangement({ flipPrep, seed: 'explain-test' });
+    const trace = explainArrangementDecisions(arrangement);
+
+    expect(trace.harmony.mode).toBe(resolveHarmonyMode(arrangement.detectedKey));
+    expect(trace.harmony.reason).toContain(arrangement.detectedKey);
+
+    expect(trace.dropVariation.passes).toBe(true);
+    expect(trace.dropVariation.reason).toContain('distinct enough');
+
+    const buildupSection = trace.sections.find((section) => section.kind === 'buildup');
+    expect(buildupSection?.reason).toBe('Energy ramps up through this section.');
+    const breakdownSection = trace.sections.find((section) => section.kind === 'breakdown');
+    expect(breakdownSection?.reason).toBe('Energy pulls back through this section.');
+    const dropSection = trace.sections.find((section) => section.kind === 'drop');
+    expect(dropSection?.reason).toBe('Energy holds steady through this section.');
+
+    expect(trace.mixRules.bassDuckUnderVocalFloor).toBeLessThan(trace.mixRules.drumsDuckUnderVocalFloor);
   });
 });

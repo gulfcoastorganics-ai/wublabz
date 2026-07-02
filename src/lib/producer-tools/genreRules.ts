@@ -31,7 +31,11 @@ export const FREQUENCY_LANE_RULES = {
   // under the kick or lead vocal. See getSidechainGain / mixArrangementStemsWithContext.
   bassDuckUnderKickFloor: 0,
   bassDuckUnderVocalFloor: 0.3,
-  drumsDuckUnderVocalFloor: 0.7
+  drumsDuckUnderVocalFloor: 0.7,
+  // How steep the bass sidechain pumps in after each kick hit — higher = more
+  // aggressive, more audible "pump". See getSidechainGain.
+  bassSidechainDuckExponent: 4.0,
+  bassSidechainWindowBeatFraction: 0.38 // ~150ms at 140 BPM
 };
 
 // --- Groove feel: silence, ghost notes, micro-timing ------------------------

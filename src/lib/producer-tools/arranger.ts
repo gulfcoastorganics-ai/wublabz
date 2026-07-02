@@ -7,6 +7,9 @@ import {
   applyGhostNoteRule,
   scoreDropVariation,
   TRANSITION_RULES,
+  TEMPO_GROOVE_RULES,
+  GROOVE_FEEL_RULES,
+  FREQUENCY_LANE_RULES,
   type DropVariationInput
 } from './genreRules.js';
 
@@ -397,9 +400,9 @@ function mixArrangementStemsWithContext(stems: ChannelBuffer[], trackTypes: Remi
       let gain = (seg.startGain + (seg.endGain - seg.startGain) * t) * MIX_SAFETY;
 
       if (acapellaStem && trackType === 'bass') {
-        gain *= Math.max(0.3, 1.0 - vocalEnv[i] * 1.8); // Duck bass under vocal
+        gain *= Math.max(FREQUENCY_LANE_RULES.bassDuckUnderVocalFloor, 1.0 - vocalEnv[i] * 1.8);
       } else if (acapellaStem && trackType === 'drums') {
-        gain *= Math.max(0.7, 1.0 - vocalEnv[i] * 0.5); // Duck drums lightly
+        gain *= Math.max(FREQUENCY_LANE_RULES.drumsDuckUnderVocalFloor, 1.0 - vocalEnv[i] * 0.5);
       }
 
       left[i]  += (stem.channels[0]?.[i] ?? 0) * gain;
@@ -576,7 +579,7 @@ function addDrumClipsToTrack(track: RemixTrack, sections: RemixSection[], seed: 
     const pattern = drumPatternForSection(section.kind);
     track.clips.push(createClip(track.id, 'drum-pattern', section, {
       pattern,
-      swing: Number((rng() * 0.08).toFixed(3)),
+      swing: Number((rng() * GROOVE_FEEL_RULES.swingRange[1]).toFixed(3)),
       seed: `${seed}:${section.id}:drums`
     }));
   }
@@ -656,7 +659,8 @@ function renderDrumClip(left: Float32Array, right: Float32Array, sampleRate: num
   const totalBeats = clip.durationBeats;
   const totalBars = Math.round(totalBeats / 4);
   const rng = createArrangerRng(seed);
-  const velTable = Array.from({ length: 32 }, () => 0.80 + rng() * 0.20);
+  const [velMin, velMax] = TEMPO_GROOVE_RULES.velocityJitterRange;
+  const velTable = Array.from({ length: 32 }, () => velMin + rng() * (velMax - velMin));
   const STEP = 0.25; // 1/16th note resolution
 
   for (let s = 0; s < Math.round(totalBeats / STEP); s++) {
@@ -1036,6 +1040,70 @@ function collectDropVariationInput(bassTrack: RemixTrack, sectionId: string, roo
   return { pitchClasses, wobbleDivisions };
 }
 
+export interface ArrangementDecisionTrace {
+  harmony: { mode: ReturnType<typeof resolveHarmonyMode>; key: string; reason: string };
+  dropVariation: ReturnType<typeof scoreDropVariation> & { reason: string };
+  sections: Array<{ kind: RemixSectionKind; energyStart: number; energyEnd: number; reason: string }>;
+  mixRules: {
+    bassDuckUnderVocalFloor: number;
+    drumsDuckUnderVocalFloor: number;
+    bassSidechainDuckExponent: number;
+    reason: string;
+  };
+}
+
+// Answers "why did the arranger make this call?" for the decisions that
+// aren't obvious from reading the output alone — which harmony mode a key
+// resolved to, whether Drop 2 actually recontextualizes Drop 1, the energy
+// plan per section, and the sidechain floors in effect. Intended for
+// debugging/dev tooling, not the end-user UI.
+export function explainArrangementDecisions(arrangement: RemixArrangement): ArrangementDecisionTrace {
+  const key = arrangement.keyOverride ?? arrangement.detectedKey;
+  const mode = resolveHarmonyMode(key);
+  const scale = keyToMidiScale(key);
+  const rootMidi = scale[0] ?? 45;
+  const bassTrack = arrangement.tracks.find((track) => track.type === 'bass');
+
+  const dropScore = bassTrack
+    ? scoreDropVariation(collectDropVariationInput(bassTrack, 'drop', rootMidi), collectDropVariationInput(bassTrack, 'second-drop', rootMidi))
+    : { score: 0, pitchOverlapRatio: 0, divisionOverlapRatio: 0, passes: false };
+
+  return {
+    harmony: {
+      mode,
+      key,
+      reason: mode === 'major'
+        ? `Key text explicitly says major.`
+        : `Deterministic hash of "${key}" landed in the ${mode} slice of the minor/phrygian/harmonicMinor bias.`
+    },
+    dropVariation: {
+      ...dropScore,
+      reason: dropScore.passes
+        ? `Drop 2 shares ${Math.round(dropScore.pitchOverlapRatio * 100)}% pitch classes and ${Math.round(dropScore.divisionOverlapRatio * 100)}% wobble divisions with Drop 1 — distinct enough.`
+        : `Drop 2 shares ${Math.round(dropScore.pitchOverlapRatio * 100)}% pitch classes and ${Math.round(dropScore.divisionOverlapRatio * 100)}% wobble divisions with Drop 1 — too similar, buildBassBar needs more disjoint degrees/divisions.`
+    },
+    sections: arrangement.sections.map((section) => {
+      const [energyStart, energyEnd] = SECTION_ENERGY[section.kind];
+      return {
+        kind: section.kind,
+        energyStart,
+        energyEnd,
+        reason: energyEnd > energyStart
+          ? 'Energy ramps up through this section.'
+          : energyEnd < energyStart
+            ? 'Energy pulls back through this section.'
+            : 'Energy holds steady through this section.'
+      };
+    }),
+    mixRules: {
+      bassDuckUnderVocalFloor: FREQUENCY_LANE_RULES.bassDuckUnderVocalFloor,
+      drumsDuckUnderVocalFloor: FREQUENCY_LANE_RULES.drumsDuckUnderVocalFloor,
+      bassSidechainDuckExponent: FREQUENCY_LANE_RULES.bassSidechainDuckExponent,
+      reason: 'Bass ducks harder and lower under the vocal than drums do, so the hook stays intelligible; both duck further and faster under each kick hit.'
+    }
+  };
+}
+
 function getSidechainGain(frame: number, sampleRate: number, bpm: number): number {
   const beatSeconds = 60 / bpm;
   const frameBeat = frame / (beatSeconds * sampleRate);
@@ -1055,11 +1123,11 @@ function getSidechainGain(frame: number, sampleRate: number, bpm: number): numbe
     }
   }
 
-  const scDuration = 0.38 * beatSeconds; // ~150ms sidechain window
+  const scDuration = FREQUENCY_LANE_RULES.bassSidechainWindowBeatFraction * beatSeconds;
   const scFrames = Math.floor(scDuration * sampleRate);
   if (minDistanceFrames < scFrames) {
     const t = minDistanceFrames / scFrames;
-    return Math.pow(t, 4.0); // more aggressive ducking under kick
+    return Math.max(FREQUENCY_LANE_RULES.bassDuckUnderKickFloor, Math.pow(t, FREQUENCY_LANE_RULES.bassSidechainDuckExponent));
   }
   return 1.0;
 }
