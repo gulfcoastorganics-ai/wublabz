@@ -315,6 +315,13 @@ function getFiniteNumber(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
 
+function toggleInSet(current: Set<string>, id: string): Set<string> {
+  const next = new Set(current);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  return next;
+}
+
 function getOptionalFiniteNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
@@ -379,6 +386,11 @@ export const WubPad: React.FC = () => {
   const [latency, setLatency] = useState(0);
   const [engineDiagnostics, setEngineDiagnostics] = useState<any>(null);
   const [reconnectAttempts, setReconnectAttempts] = useState(0);
+  // Optimistic local mirror of mute/solo — the engine doesn't echo this state
+  // back yet, and a control surface's toggle buttons need to visibly reflect
+  // what was just pressed instead of looking identically "off" forever.
+  const [mutedStems, setMutedStems] = useState<Set<string>>(new Set());
+  const [soloedStems, setSoloedStems] = useState<Set<string>>(new Set());
 
   // --- MIDI State ---
   const [midiDevices, setMidiDevices] = useState<string[]>([]);
@@ -767,15 +779,21 @@ export const WubPad: React.FC = () => {
                 value={getFiniteNumber(engineDiagnostics?.busLevels?.[`${stem.bus}_gain`], 0.85)} // Assuming gain feedback exists
                 onChange={(e) => handleIntent('STEM_GAIN', { stemId: stem.bus, value: parseFloat(e.target.value) })}
               />
-              <WubButton 
-                style={{ ...styles.button, fontSize: '0.7rem', padding: '0.25rem' }} 
-                onClick={() => handleIntent('STEM_MUTE', { stemId: stem.bus })}
+              <WubButton
+                style={{ ...styles.button, fontSize: '0.7rem', padding: '0.25rem', ...(mutedStems.has(stem.bus) ? styles.activeButton : {}) }}
+                onClick={() => {
+                  setMutedStems((current) => toggleInSet(current, stem.bus));
+                  handleIntent('STEM_MUTE', { stemId: stem.bus });
+                }}
               >
                 MUTE
               </WubButton>
-              <WubButton 
-                style={{ ...styles.button, fontSize: '0.7rem', padding: '0.25rem' }} 
-                onClick={() => handleIntent('STEM_SOLO', { stemId: stem.bus })}
+              <WubButton
+                style={{ ...styles.button, fontSize: '0.7rem', padding: '0.25rem', ...(soloedStems.has(stem.bus) ? styles.activeButton : {}) }}
+                onClick={() => {
+                  setSoloedStems((current) => toggleInSet(current, stem.bus));
+                  handleIntent('STEM_SOLO', { stemId: stem.bus });
+                }}
               >
                 SOLO
               </WubButton>
