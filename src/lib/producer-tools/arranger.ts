@@ -1093,20 +1093,95 @@ function renderAcapellaGuideClip(left: Float32Array, right: Float32Array, sample
   }
 }
 
-function renderAudioClip(left: Float32Array, right: Float32Array, sampleRate: number, bpm: number, clip: RemixClip, source: ChannelBuffer, gain: number): void {
+// Helper function to apply a Blackman-windowed sinc lowpass filter (FIR) to a channel.
+// This attenuates high frequencies above cutoffHz at target sample rate to prevent aliasing.
+function lowPassFilterChannel(channel: Float32Array, cutoffHz: number, sampleRate: number): Float32Array {
+  const numTaps = 31;
+  const filter = new Float32Array(numTaps);
+  const middle = (numTaps - 1) / 2;
+  const fc = cutoffHz / sampleRate;
+  const omega = 2 * Math.PI * fc;
+  
+  let sum = 0;
+  for (let i = 0; i < numTaps; i++) {
+    const n = i - middle;
+    if (n === 0) {
+      filter[i] = 2 * fc;
+    } else {
+      filter[i] = Math.sin(omega * n) / (Math.PI * n);
+    }
+    // Blackman window for high stopband attenuation (> 74dB)
+    const w = 0.42 - 0.5 * Math.cos((2 * Math.PI * i) / (numTaps - 1)) + 0.08 * Math.cos((4 * Math.PI * i) / (numTaps - 1));
+    filter[i] *= w;
+    sum += filter[i];
+  }
+  
+  // Normalize filter coefficients
+  for (let i = 0; i < numTaps; i++) {
+    filter[i] /= sum;
+  }
+  
+  // Convolve input channel with filter coefficients
+  const output = new Float32Array(channel.length);
+  for (let i = 0; i < channel.length; i++) {
+    let acc = 0;
+    for (let j = 0; j < numTaps; j++) {
+      const idx = i - j + middle;
+      if (idx >= 0 && idx < channel.length) {
+        acc += channel[idx] * filter[j];
+      }
+    }
+    output[i] = acc;
+  }
+  return output;
+}
+
+export function renderAudioClip(
+  left: Float32Array,
+  right: Float32Array,
+  sampleRate: number,
+  bpm: number,
+  clip: RemixClip,
+  source: ChannelBuffer,
+  gain: number
+): void {
   const beatSeconds = 60 / bpm;
   const startFrame = Math.floor(clip.startBeat * beatSeconds * sampleRate);
   const clipFrames = Math.floor(clip.durationBeats * beatSeconds * sampleRate);
   const fadeFrames = Math.min(Math.floor(sampleRate * 0.015), Math.floor(clipFrames / 3));
 
+  // Determine if downsampling is required (source sample rate is higher than render target sample rate).
+  // If downsampling, pre-filter the source channels using a Blackman-windowed sinc lowpass filter
+  // set to 92% of the target Nyquist frequency to avoid folding high frequency components back as aliasing.
+  let resampleSource = source;
+  if (source.sampleRate > sampleRate) {
+    const cutoff = (sampleRate / 2) * 0.92;
+    const filteredChannels = source.channels.map(ch => lowPassFilterChannel(ch, cutoff, source.sampleRate));
+    resampleSource = {
+      sampleRate: source.sampleRate,
+      channels: filteredChannels
+    };
+  }
+
+  const leftCh = resampleSource.channels[0];
+  const rightCh = resampleSource.channels[1] ?? leftCh;
+
   for (let i = 0; i < clipFrames && startFrame + i < left.length; i++) {
-    const sourceFrame = Math.floor((i * source.sampleRate) / sampleRate);
-    if (sourceFrame >= (source.channels[0]?.length ?? 0)) break;
+    // Fractional source frame calculation for linear interpolation
+    const pos = (i * resampleSource.sampleRate) / sampleRate;
+    const index0 = Math.floor(pos);
+    if (index0 >= leftCh.length) break;
+    const index1 = Math.min(leftCh.length - 1, index0 + 1);
+    const frac = pos - index0;
+
     const fadeIn = fadeFrames > 0 && i < fadeFrames ? i / fadeFrames : 1;
     const fadeOut = fadeFrames > 0 && i > clipFrames - fadeFrames ? (clipFrames - i) / fadeFrames : 1;
     const env = Math.max(0, Math.min(1, fadeIn, fadeOut));
-    const sourceLeft = source.channels[0]?.[sourceFrame] ?? 0;
-    const sourceRight = source.channels[1]?.[sourceFrame] ?? sourceLeft;
+
+    // Linear interpolation between index0 and index1 samples
+    const sourceLeft = (1 - frac) * leftCh[index0] + frac * leftCh[index1];
+    const sourceRight = (1 - frac) * rightCh[index0] + frac * rightCh[index1];
+
     left[startFrame + i] += sourceLeft * gain * env;
     right[startFrame + i] += sourceRight * gain * env;
   }

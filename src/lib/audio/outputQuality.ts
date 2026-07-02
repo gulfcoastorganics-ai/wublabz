@@ -157,6 +157,52 @@ export function applyMasterGlueCompression(buffer: ChannelBuffer, thresholdDb = 
   };
 }
 
+// Helper function to design a symmetric windowed-sinc lowpass FIR filter with Hamming window.
+function designLowpassFIR(cutoffHz: number, sampleRate: number, numTaps: number): Float32Array {
+  const filter = new Float32Array(numTaps);
+  const middle = (numTaps - 1) / 2;
+  const fc = cutoffHz / sampleRate;
+  const omega = 2 * Math.PI * fc;
+  
+  let sum = 0;
+  for (let i = 0; i < numTaps; i++) {
+    const n = i - middle;
+    if (n === 0) {
+      filter[i] = 2 * fc;
+    } else {
+      filter[i] = Math.sin(omega * n) / (Math.PI * n);
+    }
+    // Hamming window for smooth transition and high stopband attenuation
+    const w = 0.54 - 0.46 * Math.cos((2 * Math.PI * i) / (numTaps - 1));
+    filter[i] *= w;
+    sum += filter[i];
+  }
+  
+  // Normalize filter coefficients to preserve unity gain at DC
+  for (let i = 0; i < numTaps; i++) {
+    filter[i] /= sum;
+  }
+  return filter;
+}
+
+// Symmetric convolution applying the filter with zero phase alignment relative to original sample indices.
+function convolveFIR(channel: Float32Array, filter: Float32Array): Float32Array {
+  const numTaps = filter.length;
+  const middle = (numTaps - 1) / 2;
+  const output = new Float32Array(channel.length);
+  for (let i = 0; i < channel.length; i++) {
+    let acc = 0;
+    for (let j = 0; j < numTaps; j++) {
+      const idx = i - j + middle;
+      if (idx >= 0 && idx < channel.length) {
+        acc += channel[idx] * filter[j];
+      }
+    }
+    output[i] = acc;
+  }
+  return output;
+}
+
 export function monoLowBand(buffer: ChannelBuffer, cutoffHz = DEFAULT_LOW_MONO_HZ): ChannelBuffer {
   if (buffer.channels.length < 2) {
     return {
@@ -168,11 +214,18 @@ export function monoLowBand(buffer: ChannelBuffer, cutoffHz = DEFAULT_LOW_MONO_H
   const left = buffer.channels[0];
   const right = buffer.channels[1];
   const length = Math.min(left.length, right.length);
-  const lowLeft = onePoleLowpass(left, buffer.sampleRate, cutoffHz);
-  const lowRight = onePoleLowpass(right, buffer.sampleRate, cutoffHz);
+  const numTaps = 31;
+  const filter = designLowpassFIR(cutoffHz, buffer.sampleRate, numTaps);
+  const lowLeft = convolveFIR(left, filter);
+  const lowRight = convolveFIR(right, filter);
+  
   const rendered = buffer.channels.map((channel) => new Float32Array(channel));
   for (let i = 0; i < length; i++) {
+    // Complementary filter split:
+    // low band is summed to mono to center low frequencies
     const monoLow = (lowLeft[i] + lowRight[i]) * 0.5;
+    // high band is obtained by subtracting the phase-aligned low band from the original signal,
+    // guaranteeing perfect reconstruction when recombined with the mono low band.
     rendered[0][i] = (left[i] - lowLeft[i]) + monoLow;
     rendered[1][i] = (right[i] - lowRight[i]) + monoLow;
   }
