@@ -4,16 +4,20 @@ import { randomUUID } from 'node:crypto';
 import { FLIP_PREP_API_PREFIX, createFlipPrepError, type FlipPrepJob, type FlipPrepResult, type FlipPrepStemName } from '../lib/producer-tools/flipPrepTypes.js';
 import { analyzeOriginal, stretchAcapella } from './analyze.js';
 import { FlipWorkerError, mapProcessError } from './errors.js';
-import type { FlipPrepWorkerConfig, InternalFlipPrepJob, JobPatch, StemSeparator } from './types.js';
+import { probeAudioDuration, analyzeStemQuality, type AudioProbeResult, type StemQualityReport } from './probe.js';
+import type { FlipPrepWorkerConfig, InternalFlipPrepJob, JobPatch, StemPaths, StemSeparator } from './types.js';
 import type { AudioAnalysisResult } from './types.js';
 import type { ParsedUpload } from './upload.js';
 
 type AnalyzeFn = (inputPath: string, timeoutMs: number) => Promise<AudioAnalysisResult>;
 type StretchFn = (inputPath: string, vocalsPath: string, outputPath: string, bpm: number, timeoutMs: number) => Promise<{ acapellaPath: string }>;
+type ProbeFn = (inputPath: string, timeoutMs: number) => Promise<AudioProbeResult>;
+type QualityFn = (stemPaths: StemPaths, timeoutMs: number) => Promise<StemQualityReport[]>;
 export type FlipPrepJobLogger = (message: string, job: FlipPrepJob) => void;
 
 const STEP_LABELS: Record<FlipPrepJob['step'], string> = {
   queued: 'Queued',
+  'validating-input': 'Validating input audio',
   'separating-stems': 'Separating stems',
   'detecting-key-bpm': 'Detecting key and BPM',
   'stretching-acapella': 'Stretching acapella'
@@ -30,7 +34,9 @@ export class FlipPrepJobQueue {
     private readonly now: () => number = Date.now,
     private readonly analyzer: AnalyzeFn = analyzeOriginal,
     private readonly stretcher: StretchFn = stretchAcapella,
-    private readonly logger?: FlipPrepJobLogger
+    private readonly logger?: FlipPrepJobLogger,
+    private readonly prober: ProbeFn = probeAudioDuration,
+    private readonly qualityChecker: QualityFn = analyzeStemQuality
   ) {}
 
   async enqueue(upload: ParsedUpload): Promise<FlipPrepJob> {
@@ -87,6 +93,10 @@ export class FlipPrepJobQueue {
   private async run(job: InternalFlipPrepJob): Promise<void> {
     try {
       if (!job.inputPath || !job.workDir) throw new Error('Job input path is missing');
+
+      this.patch(job.jobId, { status: 'processing', step: 'validating-input', progress: 0.02 });
+      await this.validateInputDuration(job.inputPath);
+
       this.patch(job.jobId, { status: 'processing', step: 'separating-stems', progress: 0.05 });
       const analysisPromise = this.analyzer(job.inputPath, this.config.demucsTimeoutMs);
       const stemsPromise = this.separator.separate(job.inputPath, path.join(job.workDir, 'demucs'), (progress) => {
@@ -103,6 +113,7 @@ export class FlipPrepJobQueue {
         throw analysisResult.reason;
       }
       const stems = stemsResult.value;
+      await this.reportStemQuality(job.jobId, stems);
 
       this.patch(job.jobId, { step: 'detecting-key-bpm', progress: 0.68 });
       const acapellaPath = path.join(job.workDir, 'acapella_140.wav');
@@ -121,6 +132,8 @@ export class FlipPrepJobQueue {
         result: {
           key: analysis.key,
           bpm: analysis.bpm,
+          keyConfidence: analysis.keyConfidence,
+          bpmOctaveCorrected: analysis.bpmOctaveCorrected,
           stems: (['drums', 'bass', 'vocals', 'other'] as const)
             .filter((stem) => Boolean(stems[stem]))
             .map((stem) => ({
@@ -142,6 +155,51 @@ export class FlipPrepJobQueue {
       if (job.workDir) {
         await rm(job.workDir, { recursive: true, force: true }).catch(() => undefined);
       }
+    }
+  }
+
+  // Fails fast (before the expensive Demucs run) on corrupt/unreadable audio
+  // and on durations outside a range this worker can realistically handle.
+  private async validateInputDuration(inputPath: string): Promise<void> {
+    let probe: AudioProbeResult;
+    try {
+      probe = await this.prober(inputPath, this.config.demucsTimeoutMs);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new FlipWorkerError(createFlipPrepError('INVALID_AUDIO', message, 'Upload an mp3, wav, aiff, flac, m4a, or ogg audio file that plays correctly elsewhere.'));
+    }
+    if (probe.durationSeconds < this.config.minSourceSeconds) {
+      throw new FlipWorkerError(createFlipPrepError(
+        'AUDIO_TOO_SHORT',
+        `Audio is ${probe.durationSeconds.toFixed(1)}s, shorter than the ${this.config.minSourceSeconds}s minimum needed for reliable key/BPM detection.`,
+        'Upload a longer clip or the full track.'
+      ));
+    }
+    if (probe.durationSeconds > this.config.maxSourceSeconds) {
+      throw new FlipWorkerError(createFlipPrepError(
+        'AUDIO_TOO_LONG',
+        `Audio is ${Math.round(probe.durationSeconds)}s, longer than the ${this.config.maxSourceSeconds}s limit for this CPU-only worker.`,
+        'Trim the source to a shorter section before uploading.'
+      ));
+    }
+  }
+
+  // Best-effort signal only: never blocks or fails the job. A silent stem is
+  // often correct (e.g. no bass in the source), so this only logs — it does
+  // not reject — giving a debuggable trail without false-failing real jobs.
+  private async reportStemQuality(jobId: string, stems: StemPaths): Promise<void> {
+    try {
+      const reports = await this.qualityChecker(stems, this.config.demucsTimeoutMs);
+      const concerning = reports.filter((report) => report.isSilent || report.isClipped);
+      if (concerning.length > 0 && this.logger) {
+        const job = this.jobs.get(jobId);
+        if (job) {
+          const summary = concerning.map((report) => `${report.stem}${report.isSilent ? ' silent' : ''}${report.isClipped ? ' clipped' : ''}`).join(', ');
+          this.logger(`Flip Prep job ${jobId} stem quality warning: ${summary}`, publicJob(job));
+        }
+      }
+    } catch {
+      // Quality check is advisory — never let it affect the job outcome.
     }
   }
 

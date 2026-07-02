@@ -14,6 +14,8 @@ import type { SyncDivision } from '../src/lib/producer-tools/synth.js';
 const flipPrep = {
   key: 'A minor',
   bpm: 92,
+  keyConfidence: 1,
+  bpmOctaveCorrected: false,
   stems: [
     { name: 'drums' as const, url: '/drums.mp3' },
     { name: 'bass' as const, url: '/bass.mp3' },

@@ -53,6 +53,8 @@ export class OfflineFlipPrepClient implements FlipPrepClient {
       result: {
         key: 'A minor',
         bpm: 140,
+        keyConfidence: 1,
+        bpmOctaveCorrected: false,
         stems: [
           { name: 'drums', url: '#' },
           { name: 'bass', url: '#' },

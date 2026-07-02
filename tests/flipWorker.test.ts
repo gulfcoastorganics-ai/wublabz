@@ -106,11 +106,11 @@ describe('Flip Prep worker pure logic', () => {
     };
     const logs: string[] = [];
     const queue = new FlipPrepJobQueue(testConfig(workDir), separator, Date.now, async () => {
-      return { key: 'D minor', bpm: 128 };
+      return { key: 'D minor', bpm: 128, keyConfidence: 1, bpmOctaveCorrected: false };
     }, async (_input, _vocals, output) => {
       await writeFile(output, 'wav');
       return { acapellaPath: output };
-    }, (message) => logs.push(message));
+    }, (message) => logs.push(message), mockProbe);
 
     const created = await queue.enqueue({
       fileName: 'song.wav',
@@ -146,11 +146,11 @@ describe('Flip Prep worker pure logic', () => {
       }
     };
     const queue = new FlipPrepJobQueue(testConfig(workDir), separator, () => now, async () => {
-      return { key: 'G minor', bpm: 140 };
+      return { key: 'G minor', bpm: 140, keyConfidence: 1, bpmOctaveCorrected: false };
     }, async (_input, _vocals, output) => {
       await writeFile(output, 'wav');
       return { acapellaPath: output };
-    });
+    }, undefined, mockProbe);
     const created = await queue.enqueue({ fileName: 'song.wav', contentType: 'audio/wav', bytes: Buffer.from('audio') });
     const done = await waitFor(() => queue.get(created.jobId)?.status === 'done' ? queue.get(created.jobId) : undefined);
     const filePath = queue.getFilePath(created.jobId, 'vocals')!;
@@ -238,12 +238,12 @@ describe('Flip Prep worker pure logic', () => {
     };
     const queue = new FlipPrepJobQueue(testConfig(workDir), separator, Date.now, async () => {
       calls.push('analysis:start');
-      return { key: 'F minor', bpm: 140 };
+      return { key: 'F minor', bpm: 140, keyConfidence: 1, bpmOctaveCorrected: false };
     }, async (_input, vocals, output) => {
       calls.push(`stretch:${path.basename(vocals)}`);
       await writeFile(output, 'wav');
       return { acapellaPath: output };
-    });
+    }, undefined, mockProbe);
 
     const created = await queue.enqueue({ fileName: 'song.wav', contentType: 'audio/wav', bytes: Buffer.from('audio') });
     await waitFor(() => calls.includes('analysis:start') && calls.includes('separator:start') ? true : undefined);
@@ -266,7 +266,7 @@ describe('Flip Prep worker pure logic', () => {
       throw new Error('analysis failed fast');
     }, async () => {
       throw new Error('stretch should not run');
-    });
+    }, undefined, mockProbe);
 
     const created = await queue.enqueue({ fileName: 'song.wav', contentType: 'audio/wav', bytes: Buffer.from('audio') });
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -278,6 +278,80 @@ describe('Flip Prep worker pure logic', () => {
       return job?.status === 'error' ? job : undefined;
     });
     expect(failed.error).toContain('analysis failed fast');
+  });
+
+  it('rejects too-short input before spawning Demucs, with a clear AUDIO_TOO_SHORT error', async () => {
+    const workDir = await mkdtemp(path.join(os.tmpdir(), 'flip-too-short-test-'));
+    let separatorCalled = false;
+    const separator: StemSeparator = {
+      async separate() {
+        separatorCalled = true;
+        throw new Error('should not be called');
+      }
+    };
+    const config = { ...testConfig(workDir), minSourceSeconds: 10 };
+    const queue = new FlipPrepJobQueue(config, separator, Date.now, async () => {
+      throw new Error('analyzer should not be called');
+    }, async () => {
+      throw new Error('stretcher should not be called');
+    }, undefined, async () => ({ durationSeconds: 2 }));
+
+    const created = await queue.enqueue({ fileName: 'clip.wav', contentType: 'audio/wav', bytes: Buffer.from('audio') });
+    const failed = await waitFor(() => {
+      const job = queue.get(created.jobId);
+      return job?.status === 'error' ? job : undefined;
+    });
+
+    expect(failed.errorDetail?.code).toBe('AUDIO_TOO_SHORT');
+    expect(separatorCalled).toBe(false);
+  });
+
+  it('rejects too-long input before spawning Demucs, with a clear AUDIO_TOO_LONG error', async () => {
+    const workDir = await mkdtemp(path.join(os.tmpdir(), 'flip-too-long-test-'));
+    const separator: StemSeparator = {
+      async separate() {
+        throw new Error('should not be called');
+      }
+    };
+    const config = { ...testConfig(workDir), maxSourceSeconds: 60 };
+    const queue = new FlipPrepJobQueue(config, separator, Date.now, async () => {
+      throw new Error('analyzer should not be called');
+    }, async () => {
+      throw new Error('stretcher should not be called');
+    }, undefined, async () => ({ durationSeconds: 900 }));
+
+    const created = await queue.enqueue({ fileName: 'long.wav', contentType: 'audio/wav', bytes: Buffer.from('audio') });
+    const failed = await waitFor(() => {
+      const job = queue.get(created.jobId);
+      return job?.status === 'error' ? job : undefined;
+    });
+
+    expect(failed.errorDetail?.code).toBe('AUDIO_TOO_LONG');
+  });
+
+  it('maps a corrupt/unreadable input to INVALID_AUDIO with a clear message', async () => {
+    const workDir = await mkdtemp(path.join(os.tmpdir(), 'flip-corrupt-test-'));
+    const separator: StemSeparator = {
+      async separate() {
+        throw new Error('should not be called');
+      }
+    };
+    const queue = new FlipPrepJobQueue(testConfig(workDir), separator, Date.now, async () => {
+      throw new Error('analyzer should not be called');
+    }, async () => {
+      throw new Error('stretcher should not be called');
+    }, undefined, async () => {
+      throw new Error('moov atom not found');
+    });
+
+    const created = await queue.enqueue({ fileName: 'bad.wav', contentType: 'audio/wav', bytes: Buffer.from('audio') });
+    const failed = await waitFor(() => {
+      const job = queue.get(created.jobId);
+      return job?.status === 'error' ? job : undefined;
+    });
+
+    expect(failed.errorDetail?.code).toBe('INVALID_AUDIO');
+    expect(failed.error).toContain('moov atom not found');
   });
 
   it('keeps HttpFlipPrepClient contract aligned with worker endpoints', async () => {
@@ -362,6 +436,10 @@ describe('Flip Prep real Demucs integration', () => {
   });
 });
 
+async function mockProbe(): Promise<{ durationSeconds: number }> {
+  return { durationSeconds: 30 };
+}
+
 function testConfig(workDir: string): FlipPrepWorkerConfig {
   return {
     port: 0,
@@ -369,6 +447,8 @@ function testConfig(workDir: string): FlipPrepWorkerConfig {
     separator: 'local',
     maxUploadBytes: 1024 * 1024,
     maxClipSeconds: 60,
+    minSourceSeconds: 0,
+    maxSourceSeconds: 3600,
     concurrency: 1,
     jobTtlMs: 1000,
     demucsTimeoutMs: 1000,

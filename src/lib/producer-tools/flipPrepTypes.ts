@@ -1,4 +1,4 @@
-export type FlipPrepStep = 'queued' | 'separating-stems' | 'detecting-key-bpm' | 'stretching-acapella';
+export type FlipPrepStep = 'queued' | 'validating-input' | 'separating-stems' | 'detecting-key-bpm' | 'stretching-acapella';
 export type FlipPrepJobStatus = 'queued' | 'processing' | 'done' | 'error';
 export type FlipPrepStemName = 'drums' | 'bass' | 'vocals' | 'other';
 
@@ -18,6 +18,12 @@ export interface FlipPrepProgressInfo {
 export interface FlipPrepResult {
   key: string;
   bpm: number;
+  /** 0..1 — how confidently the key was detected; below ~0.3 the key is a
+   * near-coin-flip guess and should be treated as ambiguous, not certain. */
+  keyConfidence: number;
+  /** True if the raw tempo detection fell outside a plausible song-tempo
+   * range and was folded by octave (halved/doubled) before use. */
+  bpmOctaveCorrected: boolean;
   stems: FlipPrepStem[];
   acapella140Url: string;
   outputPaths?: Partial<Record<FlipPrepStemName | 'acapella140', string>>;
@@ -27,6 +33,8 @@ export interface FlipPrepError {
   code:
     | 'UPLOAD_TOO_LARGE'
     | 'INVALID_AUDIO'
+    | 'AUDIO_TOO_SHORT'
+    | 'AUDIO_TOO_LONG'
     | 'PYTHON_MISSING'
     | 'DEMUCS_MISSING'
     | 'FFMPEG_MISSING'

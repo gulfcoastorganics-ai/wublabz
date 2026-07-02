@@ -14,6 +14,8 @@ export interface StemSeparator {
 export interface AudioAnalysisResult {
   key: string;
   bpm: number;
+  keyConfidence: number;
+  bpmOctaveCorrected: boolean;
 }
 
 export interface AcapellaStretchResult {
@@ -28,6 +30,8 @@ export interface FlipPrepWorkerConfig {
   separator: 'local' | 'cloud';
   maxUploadBytes: number;
   maxClipSeconds: number;
+  minSourceSeconds: number;
+  maxSourceSeconds: number;
   concurrency: number;
   jobTtlMs: number;
   demucsTimeoutMs: number;

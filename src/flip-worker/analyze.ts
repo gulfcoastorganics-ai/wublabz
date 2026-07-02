@@ -19,13 +19,15 @@ export async function analyzeOriginal(inputPath: string, timeoutMs: number): Pro
     '--input',
     inputPath
   ], { timeoutMs });
-  const parsed = JSON.parse(result.stdout.trim()) as { key?: string; bpm?: number };
+  const parsed = JSON.parse(result.stdout.trim()) as { key?: string; bpm?: number; keyConfidence?: number; bpmOctaveCorrected?: boolean };
   if (!parsed.key || !parsed.bpm) {
     throw new Error(`Invalid analysis response: ${result.stdout}`);
   }
   return {
     key: parsed.key,
-    bpm: parsed.bpm
+    bpm: parsed.bpm,
+    keyConfidence: parsed.keyConfidence ?? 1,
+    bpmOctaveCorrected: parsed.bpmOctaveCorrected ?? false
   };
 }
 

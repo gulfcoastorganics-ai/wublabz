@@ -158,8 +158,14 @@ export function FlipPrepView() {
       {job?.result && (
         <>
           <div style={styles.grid}>
-            <div style={styles.control}>KEY <strong>{job.result.key}</strong></div>
-            <div style={styles.control}>BPM <strong>{job.result.bpm}</strong></div>
+            <div style={styles.control}>
+              KEY <strong>{job.result.key}</strong>
+              {job.result.keyConfidence < 0.3 && <span title="Key detection was ambiguous — verify by ear"> ⚠ low confidence</span>}
+            </div>
+            <div style={styles.control}>
+              BPM <strong>{job.result.bpm}</strong>
+              {job.result.bpmOctaveCorrected && <span title="Raw tempo detection was outside a plausible range and was folded by octave"> ⚠ octave-corrected</span>}
+            </div>
             {vocalsStem && <StemPreview label="Vocals stem" url={resolveFlipPrepAssetUrl(client.baseUrl, vocalsStem.url)} />}
             <StemPreview label="Acapella 140" url={resolveFlipPrepAssetUrl(client.baseUrl, job.result.acapella140Url)} />
             {accompanimentStem && <StemPreview label="Accompaniment stem" url={resolveFlipPrepAssetUrl(client.baseUrl, accompanimentStem.url)} />}

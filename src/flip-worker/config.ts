@@ -10,6 +10,11 @@ export function loadFlipPrepWorkerConfig(env: NodeJS.ProcessEnv = process.env): 
     separator: env.SEPARATOR === 'cloud' ? 'cloud' : 'local',
     maxUploadBytes: numberEnv(env.FLIP_PREP_MAX_UPLOAD_BYTES, 250 * 1024 * 1024),
     maxClipSeconds: numberEnv(env.FLIP_PREP_MAX_CLIP_SECONDS, 60),
+    // Below this, BPM/key detection has too little material to be meaningful.
+    minSourceSeconds: numberEnv(env.FLIP_PREP_MIN_SOURCE_SECONDS, 3),
+    // Above this, a full Demucs separation is unrealistic on CPU-only hardware
+    // within the configured timeout; reject fast instead of tying up a worker slot.
+    maxSourceSeconds: numberEnv(env.FLIP_PREP_MAX_SOURCE_SECONDS, 15 * 60),
     concurrency: Math.max(1, numberEnv(env.FLIP_PREP_CONCURRENCY, 1)),
     jobTtlMs: numberEnv(env.FLIP_PREP_JOB_TTL_MS, 30 * 60 * 1000),
     demucsTimeoutMs: numberEnv(env.DEMUCS_TIMEOUT_MS, 20 * 60 * 1000),
