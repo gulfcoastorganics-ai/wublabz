@@ -19,6 +19,7 @@ import {
 } from '../lib/producer-tools/arranger';
 import { WubLabzEngine } from '../lib/WubLabzEngine';
 import { getFlipPrepApiUrl } from '../wubpad-integration/env';
+import { DubstepVisualizer } from './DubstepVisualizer';
 import { ActionButton, StatusMessage, styles, toArrayBuffer, ToolPanel } from './SampleManglerView';
 
 const TRACK_COLORS: Record<RemixTrackType, string> = {
@@ -124,6 +125,15 @@ export function RemixToDubstepView() {
     engine.setBpm(arrangement.targetBpm);
 
     try {
+      // Tone.js owns its own AudioContext by default, separate from the raw
+      // context ProducerAudioEngine renders/schedules against. Without this,
+      // Tone.Player nodes live in a different context than getProducerAnalyser()
+      // and connecting them throws (silently, inside a Tone internal that
+      // swallows the error) — playback never starts. Point Tone at the shared
+      // context so everything lives on the same audio graph.
+      if (T.getContext().rawContext !== context) {
+        T.setContext(context);
+      }
       // Ensure Tone.js audio context is started
       await T.start();
       T.Transport.stop();
@@ -305,6 +315,9 @@ export function RemixToDubstepView() {
             <div style={styles.control}>SOURCE BPM <strong>{arrangement.sourceBpm}</strong></div>
             <div style={styles.control}>TARGET BPM <strong>{arrangement.targetBpm}</strong></div>
             <div style={styles.control}>DURATION <strong>{Math.round(arrangementDurationSeconds(arrangement))}s</strong></div>
+          </div>
+          <div style={{ marginTop: '1rem' }}>
+            <DubstepVisualizer active={playing} />
           </div>
           <Timeline arrangement={arrangement} onMute={(trackId) => toggleTrack(trackId, 'muted')} onSolo={(trackId) => toggleTrack(trackId, 'solo')} />
           <div style={styles.actions}>
