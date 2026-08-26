@@ -7,8 +7,6 @@ import { encodeWav } from '../src/lib/export/wav.js';
 import type { ChannelBuffer } from '../src/lib/producer-tools/mangler.js';
 import type { StemPaths } from '../src/flip-worker/types.js';
 
-const EULOGY_FIXTURE = path.join(process.cwd(), 'test-audio', 'eulogy_short.mp3');
-
 function sineWave(seconds: number, amplitude: number, sampleRate = 44100): ChannelBuffer {
   const length = Math.floor(seconds * sampleRate);
   const channel = new Float32Array(length);
@@ -27,9 +25,10 @@ async function writeWav(buffer: ChannelBuffer): Promise<string> {
 
 describe('probeAudioDuration', () => {
   it('reads the real duration of a valid audio file', async () => {
-    const result = await probeAudioDuration(EULOGY_FIXTURE, 10_000);
-    expect(result.durationSeconds).toBeGreaterThan(50);
-    expect(result.durationSeconds).toBeLessThan(60);
+    const fixture = await writeWav(sineWave(2.5, 0.25));
+    const result = await probeAudioDuration(fixture, 10_000);
+    expect(result.durationSeconds).toBeGreaterThan(2.45);
+    expect(result.durationSeconds).toBeLessThan(2.55);
   });
 
   it('throws a clear, actionable error for corrupt/unreadable input instead of a raw subprocess dump', async () => {
