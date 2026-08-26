@@ -28,7 +28,7 @@ jobs:
       - run: npm run build
       - name: Smoke Fastify production server
         run: |
-          WUBLABZ_PORT=4311 npm run server >/tmp/wublabz-server.log 2>&1 &
+          PORT=4311 npm run server >/tmp/wublabz-server.log 2>&1 &
           server_pid=$!
           trap 'kill "$server_pid" 2>/dev/null || true' EXIT
           for i in {1..30}; do
@@ -37,7 +37,10 @@ jobs:
             fi
             sleep 0.25
           done
-          test -s /tmp/wublabz-health.json
+          if ! test -s /tmp/wublabz-health.json; then
+            cat /tmp/wublabz-server.log
+            exit 1
+          fi
           node -e "const fs=require('fs'); const body=JSON.parse(fs.readFileSync('/tmp/wublabz-health.json','utf8')); if (body.status !== 'ok') throw new Error('Unexpected health payload: '+JSON.stringify(body));"
       - name: Production dependency audit
         run: npm audit --omit=dev --audit-level=high
