@@ -1,7 +1,10 @@
 import type { SceneQuantize } from '../lib/playback/transportSnapshot.js';
+import { validateTimelineEvents } from '../lib/producer/ArrangementReconstructionEngine.js';
+import type { TimelineEventV2 } from '../lib/producer/types.js';
 
 export const WUBLABZ_EVENT_TYPES = [
   'HEARTBEAT',
+  'TIMELINE_LOAD',
   'TRANSPORT_PLAY',
   'TRANSPORT_PAUSE',
   'TRANSPORT_STOP',
@@ -20,6 +23,7 @@ export const WUBLABZ_EVENT_TYPES = [
 
 export const WUBLABZ_INTENTS = [
   'HEARTBEAT',
+  'TIMELINE_LOAD',
   'TRANSPORT_PLAY',
   'TRANSPORT_PAUSE',
   'TRANSPORT_STOP',
@@ -49,6 +53,11 @@ export interface EventRejectedPayload {
 export interface HeartbeatPayload extends Record<string, unknown> {
   clientSent?: number;
   serverReceived?: number;
+}
+
+export interface TimelineLoadPayload {
+  events: TimelineEventV2[];
+  bpm?: number;
 }
 
 export interface TransportSeekPayload {
@@ -84,6 +93,7 @@ export type EmergencyStopPayload = Record<string, unknown>;
 
 export type ValidatedWubLabzEvent =
   | { type: 'HEARTBEAT'; source: string; timestamp?: number; clientId?: string; payload: HeartbeatPayload }
+  | { type: 'TIMELINE_LOAD'; source: string; timestamp?: number; clientId?: string; payload: TimelineLoadPayload }
   | { type: 'TRANSPORT_PLAY'; source: string; timestamp?: number; clientId?: string; payload: Record<string, never> }
   | { type: 'TRANSPORT_PAUSE'; source: string; timestamp?: number; clientId?: string; payload: Record<string, never> }
   | { type: 'TRANSPORT_STOP'; source: string; timestamp?: number; clientId?: string; payload: Record<string, never> }
@@ -179,6 +189,13 @@ export function validateInboundEvent(candidate: unknown): ProtocolValidationResu
         ? { success: true, event: { ...base, type: candidate.type, payload: result.payload } as ValidatedWubLabzEvent }
         : rejectPayload(candidate.type, result);
     }
+    case 'TIMELINE_LOAD': {
+      const result = validateTimelineLoadPayload(payload);
+      return result.success
+        ? { success: true, event: { ...base, type: candidate.type, payload: result.payload } as ValidatedWubLabzEvent }
+        : rejectPayload(candidate.type, result);
+    }
+
     case 'ENGINE_STATUS':
         return { success: true, event: { ...base, type: candidate.type, payload } as ValidatedWubLabzEvent };
     
@@ -244,6 +261,47 @@ export function validateInboundEvent(candidate: unknown): ProtocolValidationResu
     }
     default:
         return { success: false, rejection: createProtocolRejection(candidate.type, 'Unsupported event type') };
+  }
+}
+
+function validateTimelineLoadPayload(payload: unknown): PayloadValidationResult<TimelineLoadPayload> {
+  if (!isRecord(payload) || !Array.isArray(payload.events) || payload.events.length === 0) {
+    return { success: false, reason: 'TIMELINE_LOAD payload.events must be a non-empty array' };
+  }
+
+  if (payload.bpm !== undefined && (!isFiniteNumber(payload.bpm) || payload.bpm < 20 || payload.bpm > 400)) {
+    return { success: false, reason: 'TIMELINE_LOAD payload.bpm must be between 20 and 400' };
+  }
+
+  for (let index = 0; index < payload.events.length; index += 1) {
+    const event = payload.events[index];
+    if (
+      !isRecord(event) ||
+      typeof event.id !== 'string' ||
+      typeof event.type !== 'string' ||
+      typeof event.sourceId !== 'string' ||
+      typeof event.sectionId !== 'string' ||
+      typeof event.enabled !== 'boolean' ||
+      !isRecord(event.payload)
+    ) {
+      return { success: false, reason: `TIMELINE_LOAD payload.events[${index}] has an invalid event shape` };
+    }
+  }
+
+  try {
+    const events = validateTimelineEvents(payload.events as TimelineEventV2[]);
+    return {
+      success: true,
+      payload: {
+        events,
+        ...(payload.bpm !== undefined ? { bpm: payload.bpm } : {})
+      }
+    };
+  } catch (error) {
+    return {
+      success: false,
+      reason: error instanceof Error ? error.message : 'TIMELINE_LOAD contains invalid timeline events'
+    };
   }
 }
 
