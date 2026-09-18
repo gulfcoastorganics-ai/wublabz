@@ -9,7 +9,8 @@ import {
   normalizeTruePeakSafe,
   getPeakAmplitude,
   softLimitChannel,
-  dbToLinear
+  dbToLinear,
+  estimateIntersamplePeak
 } from '../src/lib/audio/outputQuality.js';
 import type { ChannelBuffer } from '../src/lib/producer-tools/mangler.js';
 
@@ -67,6 +68,18 @@ describe('Mastering Chain & outputQuality', () => {
 
     // Peak should be extremely close to the target ceiling but not exceed it
     expect(peak).toBeLessThanOrEqual(targetPeak + 1e-4);
+  });
+
+  it('detects reconstructed peaks above raw sample peaks on a fast transient pattern', () => {
+    const channel = new Float32Array([
+      0, 0.92, 0.92, -0.92, -0.92, 0.92, 0.92, -0.92, -0.92, 0
+    ]);
+    const input: ChannelBuffer = { sampleRate, channels: [channel] };
+    const samplePeak = getPeakAmplitude(input);
+    const truePeak = estimateIntersamplePeak(input);
+
+    expect(truePeak).toBeGreaterThanOrEqual(samplePeak);
+    expect(Number.isFinite(truePeak)).toBe(true);
   });
 
   it('asserts makeup gain increases the volume of a quiet input', () => {
