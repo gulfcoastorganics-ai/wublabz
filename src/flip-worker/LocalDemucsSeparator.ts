@@ -16,6 +16,7 @@ export interface LocalDemucsSeparatorOptions {
 
 export class LocalDemucsSeparator implements StemSeparator {
   private readonly cache: StemCache;
+  private readonly inFlight = new Map<string, Promise<StemPaths>>();
 
   constructor(private readonly options: LocalDemucsSeparatorOptions) {
     this.cache = new StemCache({
@@ -35,17 +36,37 @@ export class LocalDemucsSeparator implements StemSeparator {
       return stems;
     }
 
-    const args = buildDemucsArgs(inputPath, outDir, this.options.mode, this.options.segmentSeconds);
-    await spawnChecked('python3', args, {
-      timeoutMs: this.options.timeoutMs,
-      onStderr: (chunk) => {
-        const progress = parseDemucsProgress(chunk);
-        if (progress !== undefined) onProgress?.(progress);
-      }
-    });
+    const cacheKey = `${hash}:${this.options.mode}`;
+    const existing = this.inFlight.get(cacheKey);
+    if (existing) {
+      const produced = await existing;
+      await materializeStemPaths(produced, stems);
+      onProgress?.(1);
+      return stems;
+    }
 
-    await this.cache.put(hash, this.options.mode, stems);
-    return stems;
+    const work = (async () => {
+      const args = buildDemucsArgs(inputPath, outDir, this.options.mode, this.options.segmentSeconds);
+      await spawnChecked('python3', args, {
+        timeoutMs: this.options.timeoutMs,
+        onStderr: (chunk) => {
+          const progress = parseDemucsProgress(chunk);
+          if (progress !== undefined) onProgress?.(progress);
+        }
+      });
+
+      await this.cache.put(hash, this.options.mode, stems);
+      return stems;
+    })();
+
+    this.inFlight.set(cacheKey, work);
+    try {
+      return await work;
+    } finally {
+      if (this.inFlight.get(cacheKey) === work) {
+        this.inFlight.delete(cacheKey);
+      }
+    }
   }
 }
 
@@ -69,7 +90,7 @@ export function buildDemucsArgs(inputPath: string, outDir: string, mode: DemucsS
   if (segmentSeconds !== undefined) {
     args.push('--segment', String(segmentSeconds));
   }
-  args.push(inputPath);
+  args.push('--', inputPath);
   return args;
 }
 
