@@ -1,0 +1,28 @@
+appId: com.wublabz.studio
+productName: WubLabz Studio
+artifactName: "WubLabz-Studio-1.0.0-${arch}.${ext}"
+electronVersion: 44.4.2
+directories:
+  output: release
+files:
+  - desktop/**/*
+  - dist/**/*
+  - package.json
+asar: true
+extraMetadata:
+  main: desktop/main.cjs
+linux:
+  category: AudioVideo
+  maintainer: WubLabz
+  target:
+    - target: deb
+      arch:
+        - x64
+    - target: AppImage
+      arch:
+        - x64
+deb:
+  depends:
+    - libgtk-3-0
+    - libnss3
+    - libasound2
