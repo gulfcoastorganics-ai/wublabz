@@ -1,4 +1,6 @@
 import { PlaybackTransport } from './playback/PlaybackTransport.js';
+import type { TimelineControlActionHandler } from './playback/ToneAdapter.js';
+import type { TimelineEventV2 } from './producer/types.js';
 import { BusGraph } from './audio/BusGraph.js';
 import { type TransportSnapshot, calculateSecondsPerBeat, calculateSecondsPerBar, calculateSecondsPerPhrase } from './playback/transportSnapshot.js';
 
@@ -15,6 +17,14 @@ export class WubLabzEngine {
     if (adapter && adapter.setBusGraph) {
       adapter.setBusGraph(this.busGraph);
     }
+  }
+
+  loadTimeline(events: TimelineEventV2[]): void {
+    this.transport.loadTimeline(events);
+  }
+
+  setTimelineControlActionHandler(handler?: TimelineControlActionHandler): void {
+    this.transport.setControlActionHandler(handler);
   }
 
   play() {
@@ -36,6 +46,11 @@ export class WubLabzEngine {
   emergencyStop() {
     this.transport.emergencyStop();
     this.busGraph.emergencyStopAudioGraph();
+  }
+
+  async dispose(): Promise<void> {
+    await this.transport.dispose();
+    this.busGraph.dispose();
   }
 
   setMasterVolume(value: number, rampTime?: number) {
