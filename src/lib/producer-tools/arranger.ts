@@ -337,20 +337,6 @@ export function renderArrangementStemWithAudio(arrangement: RemixArrangement, tr
   return { sampleRate, channels: [left, right] };
 }
 
-function mixArrangementStems(stems: ChannelBuffer[]): ChannelBuffer {
-  const sampleRate = stems[0]?.sampleRate ?? 44100;
-  const frames = stems[0]?.channels[0]?.length ?? 0;
-  const left = new Float32Array(frames);
-  const right = new Float32Array(frames);
-  for (const stem of stems) {
-    for (let i = 0; i < frames; i++) {
-      left[i] += (stem.channels[0]?.[i] ?? 0) * 0.75;
-      right[i] += (stem.channels[1]?.[i] ?? stem.channels[0]?.[i] ?? 0) * 0.75;
-    }
-  }
-  return { sampleRate, channels: [left, right] };
-}
-
 // Section-energy + per-track-level mixer. Applies SECTION_ENERGY ramp × TRACK_LEVEL to each
 // stem on-the-fly so the master has real energy architecture without touching the raw stems.
 function mixArrangementStemsWithContext(stems: ChannelBuffer[], trackTypes: RemixTrackType[], arrangement: RemixArrangement): ChannelBuffer {
@@ -395,6 +381,9 @@ function mixArrangementStemsWithContext(stems: ChannelBuffer[], trackTypes: Remi
     for (let i = 0; i < frames; i++) {
       while (si < segments.length - 1 && i >= segments[si].endFrame) si++;
       const seg = segments[si];
+      if (!seg || i < seg.startFrame || i >= seg.endFrame) {
+        continue;
+      }
       const span = seg.endFrame - seg.startFrame;
       const t = span > 0 ? Math.max(0, Math.min(1, (i - seg.startFrame) / span)) : 0;
       let gain = (seg.startGain + (seg.endGain - seg.startGain) * t) * MIX_SAFETY;
@@ -574,15 +563,20 @@ function addDrumClips(track: RemixTrack, sections: RemixSection[], seed: string)
 }
 
 function addDrumClipsToTrack(track: RemixTrack, sections: RemixSection[], seed: string): void {
-  const rng = createArrangerRng(`${seed}:drums`);
   for (const section of sections) {
     const pattern = drumPatternForSection(section.kind);
     track.clips.push(createClip(track.id, 'drum-pattern', section, {
       pattern,
-      swing: Number((rng() * GROOVE_FEEL_RULES.swingRange[1]).toFixed(3)),
+      swing: resolveSectionSwing(seed, section.id),
       seed: `${seed}:${section.id}:drums`
     }));
   }
+}
+
+function resolveSectionSwing(seed: string, sectionId: string): number {
+  const [minimum, maximum] = GROOVE_FEEL_RULES.swingRange;
+  const rng = createArrangerRng(`${seed}:groove:${sectionId}`);
+  return Number((minimum + rng() * Math.max(0, maximum - minimum)).toFixed(3));
 }
 
 function addBassClips(track: RemixTrack, sections: RemixSection[], scale: number[], seed: string, bassPreset: GrowlPreset): void {
@@ -601,6 +595,7 @@ function addBassClipsToTrack(track: RemixTrack, sections: RemixSection[], scale:
         preset: bassPreset,
         midi: notes.length > 0 ? notes[0].midiNote : 60,
         frequencyHz: notes.length > 0 ? notes[0].frequencyHz : midiToFrequency(60),
+        swing: resolveSectionSwing(seed, section.id),
         seed: `${seed}:${section.id}:bass:${bar}`
       }));
     }
