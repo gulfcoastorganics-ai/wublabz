@@ -253,6 +253,66 @@ describe('ToneJsAdapter', () => {
     expect(startArgs[2]).toBe(3.5); // duration
   });
 
+  it('materializes timeline gain and mute control actions through BusGraph', async () => {
+    const callbacks: Array<(time: number) => void> = [];
+    const applied: Array<[string, string, number, number]> = [];
+    const runtime: ToneLikeRuntime = {
+      start: async () => undefined,
+      now: () => 0,
+      Transport: {
+        bpm: { value: 120 },
+        seconds: 0,
+        scheduleOnce: (callback) => {
+          callbacks.push(callback);
+          return callbacks.length;
+        },
+        clear: () => undefined,
+        cancel: () => undefined,
+        start: () => undefined,
+        pause: () => undefined,
+        stop: () => undefined
+      },
+      Player: class {
+        start() { return this; }
+        stop() { return this; }
+        dispose() { return this; }
+      } as any,
+      ToneAudioBuffer: { fromUrl: async () => ({ duration: 1 }) }
+    };
+
+    const adapter = new ToneJsAdapter({ runtime });
+    adapter.setBusGraph({
+      initialize: async () => undefined,
+      applyEffectParameter: (effectId: string, parameter: string, value: number, rampTime = 0) => {
+        applied.push([effectId, parameter, value, rampTime]);
+        return { success: true };
+      }
+    } as any);
+
+    const gainEvent = {
+      ...createScheduledEvent(),
+      id: 'gain-event',
+      type: 'bass' as const,
+      payload: { action: 'gainChange', gain: -4, rampTime: 0.25 }
+    };
+    const muteEvent = {
+      ...createScheduledEvent(),
+      id: 'mute-event',
+      type: 'vocal' as const,
+      stemId: 'vocals',
+      payload: { action: 'stemMute', muted: true }
+    };
+
+    adapter.scheduleEvent(gainEvent);
+    adapter.scheduleEvent(muteEvent);
+    callbacks[0]?.(0);
+    callbacks[1]?.(0);
+
+    expect(applied).toContainEqual(['bass', 'volume', -4, 0.25]);
+    expect(applied).toContainEqual(['vocal', 'mute', 1, 0]);
+    expect(adapter.getMetrics().droppedEvents).toBe(0);
+  });
+
   it('schedules player cleanup on the Tone transport clock instead of wall-clock timers', async () => {
     let disposeCalls = 0;
     let nextScheduleId = 1;
