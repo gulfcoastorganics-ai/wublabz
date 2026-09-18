@@ -1,6 +1,6 @@
 # WubLabz
 
-WubLabz is a local-first music production system built around a Fastify/WebSocket engine, the WubPad browser controller, producer tools, and the Flip Prep audio-preparation worker. The current package is `1.0.0-rc.1` and is designed to run locally without uploading raw audio to a hosted service.
+WubLabz is a local-first music production system built around a Fastify/WebSocket engine, the WubPad browser controller, producer tools, and the Flip Prep audio-preparation worker. The current stable package is `1.0.0` and is designed to run locally without uploading raw audio to a hosted service.
 
 ## Current scope
 
@@ -88,6 +88,6 @@ npm run server
 
 ## Release boundary
 
-This repository is an RC-quality local production system, not a hosted multi-tenant audio service. A launch candidate should pass `typecheck`, `lint`, `test`, and `build` on the target machine and receive a human by-ear pass for audio quality and workflow behavior before being promoted from RC to stable.
+This repository is a stable local-first production system, not a hosted multi-tenant audio service. Release validation requires `typecheck`, `lint`, `test`, `build`, the production server smoke test, and the production dependency audit. A human by-ear pass remains the final subjective audio-quality acceptance check for a specific monitoring setup.
 
 No credentials or real secrets should be committed to the repository.
