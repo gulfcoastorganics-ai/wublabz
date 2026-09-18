@@ -5,7 +5,7 @@ import type { AudioGraph } from './AudioGraph.js';
 import { PlaybackValidator } from './PlaybackValidator.js';
 import type { PlaybackInstruction, EventPlaybackStrategy } from './EventPlaybackStrategy.js';
 import { resolvePlaybackInstructions, createDefaultPlaybackStrategies } from './EventPlaybackStrategy.js';
-import { ToneJsAdapter } from './ToneAdapter.js';
+import { ToneJsAdapter, type TimelineControlActionHandler } from './ToneAdapter.js';
 
 export type PlaybackState = 'stopped' | 'loading' | 'playing' | 'paused' | 'seeking' | 'rendering';
 
@@ -103,6 +103,10 @@ export class PlaybackTransport {
     return () => {
       this.positionListeners = this.positionListeners.filter((entry) => entry !== listener);
     };
+  }
+
+  setControlActionHandler(handler?: TimelineControlActionHandler): void {
+    this.adapter.setControlActionHandler(handler);
   }
 
   loadTimeline(events: TimelineEventV2[]): void {
