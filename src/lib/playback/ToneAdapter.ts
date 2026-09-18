@@ -74,11 +74,17 @@ export interface ToneLikeRuntime {
   };
 }
 
+export type TimelineControlActionHandler = (
+  action: TimelineRouteAction,
+  event: ScheduledTimelineEvent
+) => void;
+
 export interface ToneJsAdapterOptions {
   runtime?: ToneLikeRuntime;
   clipManager?: AudioClipManager<any>;
   sourcePath?: string;
   resolveSourcePath?: (event: ScheduledTimelineEvent, command: ScheduledToneEvent) => string | undefined;
+  controlActionHandler?: TimelineControlActionHandler;
 }
 
 function createToneRuntime(): ToneLikeRuntime {
@@ -101,12 +107,14 @@ export class ToneJsAdapter {
   private scheduled = new Map<string, ScheduledToneEvent>();
   private activePlayers = new Map<string, TonePlayerLike>();
   private activeTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private activePlayerDeadlines = new Map<string, number>();
   private loadedClipIds = new Set<string>();
   private droppedEvents = 0;
   private lifecycleBound = false;
   private readonly options: ToneJsAdapterOptions;
   private clipManager: AudioClipManager<any> | undefined;
   private defaultSourcePath: string | undefined;
+  private controlActionHandler: TimelineControlActionHandler | undefined;
 
   setBusGraph(busGraph: BusGraph) {
     this.busGraph = busGraph;
@@ -123,6 +131,7 @@ export class ToneJsAdapter {
 
     this.clipManager = this.options.clipManager;
     this.defaultSourcePath = this.options.sourcePath;
+    this.controlActionHandler = this.options.controlActionHandler;
   }
 
   setSourcePath(sourcePath: string): void {
@@ -131,6 +140,10 @@ export class ToneJsAdapter {
 
   setClipManager(clipManager: AudioClipManager<any>): void {
     this.clipManager = clipManager;
+  }
+
+  setControlActionHandler(handler?: TimelineControlActionHandler): void {
+    this.controlActionHandler = handler;
   }
 
   async initialize(): Promise<this> {
@@ -163,6 +176,8 @@ export class ToneJsAdapter {
     this.releaseLoadedClips();
     this.clipManager?.clearUnused(0);
     this.eventHandler = undefined;
+    this.controlActionHandler = undefined;
+    this.activePlayerDeadlines.clear();
     this.scheduled.clear();
     this.state = 'stopped';
   }
@@ -387,14 +402,18 @@ export class ToneJsAdapter {
     }
 
     const handleFocus = () => {
+      this.reapExpiredPlayers();
       if (this.state === 'playing') {
         void this.resumeAudioContext();
       }
     };
 
     const handleVisibility = () => {
-      if (globalWindow.document?.visibilityState === 'visible' && this.state === 'playing') {
-        void this.resumeAudioContext();
+      if (globalWindow.document?.visibilityState === 'visible') {
+        this.reapExpiredPlayers();
+        if (this.state === 'playing') {
+          void this.resumeAudioContext();
+        }
       }
     };
 
@@ -449,10 +468,20 @@ export class ToneJsAdapter {
     command: ScheduledToneEvent,
     scheduledTime: number
   ): Promise<void> {
-    if (command.commandType === 'noop' || command.commandType === 'marker') {
+    const route = routeTimelineEvent(event);
+    if (command.commandType === 'noop') {
       this.eventHandler?.(event, command);
       return;
     }
+    if (command.commandType === 'marker') {
+      if (route.success) {
+        this.controlActionHandler?.(route.action, event);
+      }
+      this.eventHandler?.(event, command);
+      return;
+    }
+
+    this.reapExpiredPlayers();
 
     try {
       const sourcePath = this.resolveSourcePath(event, command.commandType);
@@ -520,6 +549,15 @@ export class ToneJsAdapter {
     }, cleanupDelayMs);
 
     this.activeTimers.set(eventId, timer);
+    this.activePlayerDeadlines.set(eventId, Date.now() + cleanupDelayMs);
+  }
+
+  private reapExpiredPlayers(nowMs = Date.now()): void {
+    for (const [eventId, deadlineMs] of this.activePlayerDeadlines) {
+      if (deadlineMs <= nowMs) {
+        this.disposeActivePlayer(eventId);
+      }
+    }
   }
 
   private disposeActivePlayer(eventId: string): void {
@@ -528,6 +566,8 @@ export class ToneJsAdapter {
       clearTimeout(timer);
       this.activeTimers.delete(eventId);
     }
+
+    this.activePlayerDeadlines.delete(eventId);
 
     const player = this.activePlayers.get(eventId);
     if (player) {
