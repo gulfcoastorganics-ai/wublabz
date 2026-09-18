@@ -4,7 +4,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { HttpFlipPrepClient, resolveFlipPrepAssetUrl } from '../src/lib/producer-tools/flipPrepApi.js';
 import { isFlipPrepJob } from '../src/lib/producer-tools/flipPrepTypes.js';
-import { buildDemucsArgs, LocalDemucsSeparator, materializeStemPaths } from '../src/flip-worker/LocalDemucsSeparator.js';
+import { buildDemucsArgs, buildSeparationKey, LocalDemucsSeparator, materializeStemPaths } from '../src/flip-worker/LocalDemucsSeparator.js';
 import { StemCache, hashFile } from '../src/flip-worker/cache.js';
 import { calculateStretchRate } from '../src/flip-worker/math.js';
 import { mapProcessError } from '../src/flip-worker/errors.js';
@@ -50,11 +50,22 @@ describe('Flip Prep worker pure logic', () => {
 
   it('selects two-stem vocals by default and supports full four-stem args', () => {
     expect(buildDemucsArgs('song.wav', '/tmp/out', 'vocals')).toEqual([
-      '-m', 'demucs', '--mp3', '-n', 'htdemucs', '-o', '/tmp/out', '--two-stems', 'vocals', 'song.wav'
+      '-m', 'demucs', '--mp3', '-n', 'htdemucs', '-o', '/tmp/out', '--two-stems', 'vocals', '--', 'song.wav'
     ]);
     expect(buildDemucsArgs('song.wav', '/tmp/out', 'full', 12)).toEqual([
-      '-m', 'demucs', '--mp3', '-n', 'htdemucs', '-o', '/tmp/out', '--segment', '12', 'song.wav'
+      '-m', 'demucs', '--mp3', '-n', 'htdemucs', '-o', '/tmp/out', '--segment', '12', '--', 'song.wav'
     ]);
+  });
+
+  it('terminates Demucs options before a potentially hyphenated input filename', () => {
+    const args = buildDemucsArgs('--help.wav', '/tmp/out', 'vocals');
+    expect(args.slice(-2)).toEqual(['--', '--help.wav']);
+  });
+
+  it('keys in-flight separation by content, mode, and segment size', () => {
+    expect(buildSeparationKey('abc', 'vocals')).toBe('abc:vocals:default');
+    expect(buildSeparationKey('abc', 'full', 12)).toBe('abc:full:12');
+    expect(buildSeparationKey('abc', 'full', 12)).not.toBe(buildSeparationKey('abc', 'full', 8));
   });
 
   it('maps missing dependency errors to actionable client errors', () => {
