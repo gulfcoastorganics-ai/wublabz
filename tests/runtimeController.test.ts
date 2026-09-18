@@ -99,6 +99,35 @@ describe('RuntimeController', () => {
     expect((response.payload as RuntimeResponsePayload).reason).toBe('No timeline loaded');
   });
 
+  it('loads a canonical timeline and allows transport play', async () => {
+    const diagnostics = controller.loadTimeline([{
+      id: 'marker-1',
+      type: 'marker',
+      sourceId: 'source-1',
+      sectionId: 'intro-1',
+      startTime: 0,
+      endTime: 1,
+      beatStart: 0,
+      beatEnd: 2,
+      barStart: 0,
+      barEnd: 0.5,
+      energyLevel: 0.2,
+      enabled: true,
+      probability: 1,
+      payload: { sectionType: 'intro' }
+    }], 140);
+
+    expect(diagnostics.scheduledEventCount).toBe(1);
+    expect(diagnostics.bpm).toBe(140);
+
+    const response = controller.handleIntent({
+      type: 'TRANSPORT_PLAY',
+      source: 'wubpad',
+      payload: {}
+    });
+    expect(response.type).toBe('ENGINE_STATUS');
+  });
+
   it('TRANSPORT_STOP succeeds without a loaded timeline', () => {
     const response = controller.handleIntent({
       type: 'TRANSPORT_STOP',
