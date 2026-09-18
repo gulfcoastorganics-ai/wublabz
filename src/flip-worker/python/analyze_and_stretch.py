@@ -18,6 +18,8 @@ NOTES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 # an octave error than a genuinely 45 BPM or 210 BPM track.
 BPM_SANE_MIN = 60.0
 BPM_SANE_MAX = 200.0
+ANALYSIS_SAMPLE_RATE = 22050
+ANALYSIS_MAX_SECONDS = 300.0
 
 
 def detect_key(y, sr):
@@ -56,17 +58,23 @@ def detect_bpm(y, sr):
     return corrected, corrected != tempo
 
 
-def stretch_vocals(vocal_path, output_path, sr, detected_bpm):
-    y, vocal_sr = librosa.load(vocal_path, sr=sr, mono=False)
+def stretch_vocals(vocal_path, output_path, detected_bpm):
+    # Preserve the separated vocal stem's native sample rate for render quality.
+    y, vocal_sr = librosa.load(vocal_path, sr=None, mono=False, dtype=np.float32)
     rate = 140.0 / detected_bpm if detected_bpm > 0 else 1.0
     try:
         import pyrubberband as pyrb
         stretched = pyrb.time_stretch(y, vocal_sr, rate)
     except Exception:
-        if y.ndim == 1:
+        # A left/right independent phase-vocoder pass can hollow out stereo
+        # vocals. Prefer a coherent multi-channel stretch when supported; if
+        # the installed librosa cannot do that, fall back to phase-safe mono.
+        try:
             stretched = librosa.effects.time_stretch(y, rate=rate)
-        else:
-            stretched = np.vstack([librosa.effects.time_stretch(channel, rate=rate) for channel in y])
+        except Exception:
+            mono = y if y.ndim == 1 else np.mean(y, axis=0)
+            mono_stretched = librosa.effects.time_stretch(mono, rate=rate)
+            stretched = mono_stretched if y.ndim == 1 else np.vstack([mono_stretched, mono_stretched])
     sf.write(output_path, stretched.T if stretched.ndim > 1 else stretched, vocal_sr)
     return rate
 
@@ -81,7 +89,18 @@ def main():
     args = parser.parse_args()
 
     if args.mode in ("analyze", "analyze-and-stretch"):
-        y, sr = librosa.load(args.input, sr=None, mono=True)
+        # Bound analysis memory independently from source sample rate/duration.
+        # 5 minutes of mono float32 at 22.05 kHz is ~26 MiB instead of
+        # potentially hundreds of MiB for long 96/192 kHz source files.
+        y, sr = librosa.load(
+            args.input,
+            sr=ANALYSIS_SAMPLE_RATE,
+            mono=True,
+            duration=ANALYSIS_MAX_SECONDS,
+            dtype=np.float32,
+        )
+        if y.size == 0:
+            raise ValueError("input audio decoded to an empty analysis buffer")
         bpm, bpm_octave_corrected = detect_bpm(y, sr)
         key, key_confidence = detect_key(y, sr)
     else:
@@ -102,7 +121,7 @@ def main():
 
     if not args.vocals or not args.output:
         raise ValueError("--vocals and --output are required for stretch mode")
-    rate = stretch_vocals(args.vocals, args.output, sr, bpm)
+    rate = stretch_vocals(args.vocals, args.output, bpm)
     payload = {"bpm": round(bpm), "stretchRate": rate, "acapellaPath": args.output}
     if key is not None:
         payload["key"] = key
