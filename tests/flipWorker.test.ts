@@ -50,11 +50,15 @@ describe('Flip Prep worker pure logic', () => {
 
   it('selects two-stem vocals by default and supports full four-stem args', () => {
     expect(buildDemucsArgs('song.wav', '/tmp/out', 'vocals')).toEqual([
-      '-m', 'demucs', '--mp3', '-n', 'htdemucs', '-o', '/tmp/out', '--two-stems', 'vocals', 'song.wav'
+      '-m', 'demucs', '--mp3', '-n', 'htdemucs', '-o', '/tmp/out', '--two-stems', 'vocals', '--', 'song.wav'
     ]);
     expect(buildDemucsArgs('song.wav', '/tmp/out', 'full', 12)).toEqual([
-      '-m', 'demucs', '--mp3', '-n', 'htdemucs', '-o', '/tmp/out', '--segment', '12', 'song.wav'
+      '-m', 'demucs', '--mp3', '-n', 'htdemucs', '-o', '/tmp/out', '--segment', '12', '--', 'song.wav'
     ]);
+  });
+
+  it('terminates Demucs options before filenames that begin with a hyphen', () => {
+    expect(buildDemucsArgs('-o.wav', '/tmp/out', 'vocals').slice(-2)).toEqual(['--', '-o.wav']);
   });
 
   it('maps missing dependency errors to actionable client errors', () => {
