@@ -68,6 +68,10 @@ export async function createWubLabzServer(options: WubLabzServerOptions = {}) {
 
   let activeConnections = 0;
 
+  server.addHook('onClose', async () => {
+    await runtimeController.disposeRuntime();
+  });
+
   server.addContentTypeParser(/^multipart\/form-data/i, { parseAs: 'buffer' }, (_request, body, done) => {
     done(null, body);
   });
