@@ -450,6 +450,10 @@ export class ToneJsAdapter {
     scheduledTime: number
   ): Promise<void> {
     if (command.commandType === 'noop' || command.commandType === 'marker') {
+      const route = routeTimelineEvent(event);
+      if (route.success && route.action.commandType === 'marker') {
+        this.applyControlRouteAction(route.action);
+      }
       this.eventHandler?.(event, command);
       return;
     }
@@ -506,6 +510,37 @@ export class ToneJsAdapter {
     } catch {
       this.droppedEvents += 1;
       this.eventHandler?.(event, command);
+    }
+  }
+
+  private applyControlRouteAction(action: TimelineRouteAction): void {
+    if (!this.busGraph) {
+      if (action.actionType !== 'marker' && action.actionType !== 'macro') {
+        this.droppedEvents += 1;
+      }
+      return;
+    }
+
+    if (action.actionType === 'stemMute') {
+      const result = this.busGraph.applyEffectParameter(action.bus, 'mute', action.muted ? 1 : 0, 0);
+      if (!result.success) this.droppedEvents += 1;
+      return;
+    }
+
+    if (action.actionType === 'gainChange') {
+      const result = this.busGraph.applyEffectParameter(action.bus, 'volume', action.value, action.rampTime);
+      if (!result.success) this.droppedEvents += 1;
+      return;
+    }
+
+    if (action.actionType === 'modulation') {
+      const result = this.busGraph.applyEffectParameter(
+        action.effectId,
+        action.parameter,
+        action.value,
+        action.rampTime ?? 0
+      );
+      if (!result.success) this.droppedEvents += 1;
     }
   }
 
