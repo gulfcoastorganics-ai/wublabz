@@ -100,7 +100,7 @@ export class ToneJsAdapter {
   private eventHandler: ((event: ScheduledTimelineEvent, command: ScheduledToneEvent) => void) | undefined;
   private scheduled = new Map<string, ScheduledToneEvent>();
   private activePlayers = new Map<string, TonePlayerLike>();
-  private activeTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private activeCleanupScheduleIds = new Map<string, number>();
   private loadedClipIds = new Set<string>();
   private droppedEvents = 0;
   private lifecycleBound = false;
@@ -498,12 +498,10 @@ export class ToneJsAdapter {
 
       this.activePlayers.set(event.id, player);
 
-      const effectivePlaybackRate = typeof event.payload?.playbackRate === 'number' ? event.payload.playbackRate : 1;
-      this.scheduleCleanup(event.id, clip, effectivePlaybackRate);
-
       const offset = resolveClipOffsetSeconds(event, clip, scheduledTime);
       const duration = resolveClipDurationSeconds(event, clip, offset, scheduledTime);
       player.start(scheduledTime, offset, duration);
+      this.scheduleCleanup(event.id, event.endTime + 0.5);
       this.eventHandler?.(event, command);
     } catch {
       this.droppedEvents += 1;
@@ -511,22 +509,33 @@ export class ToneJsAdapter {
     }
   }
 
-  private scheduleCleanup(eventId: string, clip: LoadedClip<ToneAudioBufferLike>, playbackRate: number = 1): void {
-    const rate = playbackRate > 0 ? playbackRate : 1;
-    const realDuration = clip.duration / rate;
-    const cleanupDelayMs = Math.max(100, Math.round((realDuration + 0.5) * 1000));
-    const timer = setTimeout(() => {
-      this.disposeActivePlayer(eventId);
-    }, cleanupDelayMs);
+  private scheduleCleanup(eventId: string, cleanupTimeSeconds: number): void {
+    if (!this.runtime) {
+      return;
+    }
 
-    this.activeTimers.set(eventId, timer);
+    const existingCleanupId = this.activeCleanupScheduleIds.get(eventId);
+    if (existingCleanupId !== undefined) {
+      this.runtime.Transport.clear(existingCleanupId);
+    }
+
+    const cleanupId = this.runtime.Transport.scheduleOnce(() => {
+      this.activeCleanupScheduleIds.delete(eventId);
+      this.disposeActivePlayer(eventId);
+    }, cleanupTimeSeconds);
+
+    this.activeCleanupScheduleIds.set(eventId, cleanupId);
   }
 
   private disposeActivePlayer(eventId: string): void {
-    const timer = this.activeTimers.get(eventId);
-    if (timer) {
-      clearTimeout(timer);
-      this.activeTimers.delete(eventId);
+    const cleanupId = this.activeCleanupScheduleIds.get(eventId);
+    if (cleanupId !== undefined) {
+      try {
+        this.runtime?.Transport.clear(cleanupId);
+      } catch {
+        // ignore transport cleanup failures during teardown
+      }
+      this.activeCleanupScheduleIds.delete(eventId);
     }
 
     const player = this.activePlayers.get(eventId);
