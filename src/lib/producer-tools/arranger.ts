@@ -337,20 +337,6 @@ export function renderArrangementStemWithAudio(arrangement: RemixArrangement, tr
   return { sampleRate, channels: [left, right] };
 }
 
-function mixArrangementStems(stems: ChannelBuffer[]): ChannelBuffer {
-  const sampleRate = stems[0]?.sampleRate ?? 44100;
-  const frames = stems[0]?.channels[0]?.length ?? 0;
-  const left = new Float32Array(frames);
-  const right = new Float32Array(frames);
-  for (const stem of stems) {
-    for (let i = 0; i < frames; i++) {
-      left[i] += (stem.channels[0]?.[i] ?? 0) * 0.75;
-      right[i] += (stem.channels[1]?.[i] ?? stem.channels[0]?.[i] ?? 0) * 0.75;
-    }
-  }
-  return { sampleRate, channels: [left, right] };
-}
-
 // Section-energy + per-track-level mixer. Applies SECTION_ENERGY ramp × TRACK_LEVEL to each
 // stem on-the-fly so the master has real energy architecture without touching the raw stems.
 function mixArrangementStemsWithContext(stems: ChannelBuffer[], trackTypes: RemixTrackType[], arrangement: RemixArrangement): ChannelBuffer {
@@ -395,6 +381,9 @@ function mixArrangementStemsWithContext(stems: ChannelBuffer[], trackTypes: Remi
     for (let i = 0; i < frames; i++) {
       while (si < segments.length - 1 && i >= segments[si].endFrame) si++;
       const seg = segments[si];
+      if (!seg || i < seg.startFrame || i >= seg.endFrame) {
+        continue;
+      }
       const span = seg.endFrame - seg.startFrame;
       const t = span > 0 ? Math.max(0, Math.min(1, (i - seg.startFrame) / span)) : 0;
       let gain = (seg.startGain + (seg.endGain - seg.startGain) * t) * MIX_SAFETY;

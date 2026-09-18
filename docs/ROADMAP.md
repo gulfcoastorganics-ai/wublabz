@@ -1,56 +1,30 @@
 # Roadmap
 
-## Public Alpha Priorities
+## WubLabz 1.0 status
 
-1. Keep the deterministic playback path green.
-2. Finish renderer support for typed route actions.
-3. Add full runtime pipeline loading from generated `TimelineEventV2[]`.
-4. Harden worker lifecycle cleanup tests.
-5. Improve source classification without uploading raw audio.
+WubLabz 1.0 is the stable local-first release line. The production release gate covers deterministic playback, producer tools, Flip Prep, worker-backed analysis, WubPad control, export, persistence, type safety, tests, build output, server smoke validation, and production dependency auditing.
 
-## Playback Backbone
+The following items are post-1.0 enhancements rather than blockers for the stable local product:
 
-Completed:
+## Playback evolution
 
-- deterministic `TimelineEventV2` creation
-- scheduler validation, deduplication, ordering, and cleanup helpers
-- typed `TimelineEventRouter`
-- ToneAdapter direct-destination bypass removed
-- BusGraph lifecycle helpers
-- protocol validation before runtime dispatch
+- Expand typed marker/control actions into richer timeline-native automation where it improves musical behavior.
+- Add a public runtime API for externally supplied `TimelineEventV2[]` when remote/editor integrations require it.
+- Continue increasing browser-level timing and lifecycle coverage beyond deterministic unit tests.
 
-Next:
+## Worker evolution
 
-- make `TimelineEventRouter` the single source for every rendered Tone action
-- materialize `stemMute`, `gainChange`, `macro`, and `modulation` route actions in the renderer where musically appropriate
-- add loaded timeline ingestion to `RuntimeController`
+- Add more end-to-end worker lifecycle stress tests.
+- Add non-blocking progress telemetry for long analysis jobs.
+- Evaluate optional additional separator backends without creating a second audio architecture.
 
-## Workers
+## Producer intelligence evolution
 
-Completed:
+- Add target-genre-specific callback motif suffixing.
+- Add richer phrase-recall roles.
+- Add persistent producer-diagnostics history snapshots.
 
-- decode worker
-- waveform worker
-- analysis worker
+## Product evolution
 
-Next:
-
-- worker lifecycle cleanup tests
-- optional stem worker scaffold
-- non-blocking progress diagnostics for analysis jobs
-
-## Producer Intelligence
-
-Completed:
-
-- motif memory
-- phrase recall
-- drop escalation
-- repetition fatigue
-- deterministic fakeout suppression
-
-Next:
-
-- target-genre-specific callback motif suffixing
-- richer phrase recall roles
-- producer diagnostics history snapshots
+- Continue accessibility, onboarding, project-template, and deployment packaging improvements.
+- Treat hosted multi-tenant operation as a separate product effort with authentication, quotas, storage isolation, observability, and service-level controls.

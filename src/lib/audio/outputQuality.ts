@@ -276,16 +276,43 @@ function coefficient(sampleRate: number, seconds: number): number {
   return Math.exp(-1 / (Math.max(1, sampleRate) * Math.max(0.001, seconds)));
 }
 
-function estimateIntersamplePeak(buffer: ChannelBuffer): number {
-  let peak = 0;
+export function estimateIntersamplePeak(buffer: ChannelBuffer, oversample = 4): number {
+  const factor = Math.max(2, Math.floor(oversample));
+  const radius = 8;
+  let peak = getPeakAmplitude(buffer);
+
   for (const channel of buffer.channels) {
-    for (let i = 1; i < channel.length; i++) {
-      const previous = channel[i - 1];
-      const current = channel[i];
-      const transitionOvershoot = Math.abs(current - previous) * 0.02;
-      peak = Math.max(peak, Math.abs(previous), Math.abs(current), Math.abs((previous + current) * 0.5), Math.max(Math.abs(previous), Math.abs(current)) + transitionOvershoot);
+    for (let i = 0; i < channel.length - 1; i++) {
+      for (let phase = 1; phase < factor; phase++) {
+        const position = i + phase / factor;
+        let sample = 0;
+        let weightSum = 0;
+
+        for (let tap = -radius + 1; tap <= radius; tap++) {
+          const index = i + tap;
+          if (index < 0 || index >= channel.length) continue;
+
+          const distance = position - index;
+          const sinc = Math.abs(distance) < 1e-12
+            ? 1
+            : Math.sin(Math.PI * distance) / (Math.PI * distance);
+          const normalizedDistance = Math.abs(distance) / radius;
+          if (normalizedDistance >= 1) continue;
+
+          const window = 0.5 * (1 + Math.cos(Math.PI * normalizedDistance));
+          const weight = sinc * window;
+          sample += channel[index] * weight;
+          weightSum += weight;
+        }
+
+        if (Math.abs(weightSum) > 1e-12) {
+          sample /= weightSum;
+        }
+        peak = Math.max(peak, Math.abs(sample));
+      }
     }
   }
+
   return peak;
 }
 
