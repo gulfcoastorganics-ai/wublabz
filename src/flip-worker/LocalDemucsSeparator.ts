@@ -16,6 +16,7 @@ export interface LocalDemucsSeparatorOptions {
 
 export class LocalDemucsSeparator implements StemSeparator {
   private readonly cache: StemCache;
+  private readonly inFlight = new Map<string, Promise<StemPaths>>();
 
   constructor(private readonly options: LocalDemucsSeparatorOptions) {
     this.cache = new StemCache({
@@ -35,6 +36,33 @@ export class LocalDemucsSeparator implements StemSeparator {
       return stems;
     }
 
+    const key = buildSeparationKey(hash, this.options.mode, this.options.segmentSeconds);
+    const existing = this.inFlight.get(key);
+    if (existing) {
+      const sharedResult = await existing;
+      await materializeStemPaths(sharedResult, stems);
+      onProgress?.(1);
+      return stems;
+    }
+
+    const job = this.runSeparation(inputPath, outDir, hash, onProgress);
+    this.inFlight.set(key, job);
+    try {
+      return await job;
+    } finally {
+      if (this.inFlight.get(key) === job) {
+        this.inFlight.delete(key);
+      }
+    }
+  }
+
+  private async runSeparation(
+    inputPath: string,
+    outDir: string,
+    hash: string,
+    onProgress?: (progress: number) => void
+  ): Promise<StemPaths> {
+    const stems = resolveDemucsStemPaths(outDir, inputPath, 'htdemucs', this.options.mode);
     const args = buildDemucsArgs(inputPath, outDir, this.options.mode, this.options.segmentSeconds);
     await spawnChecked('python3', args, {
       timeoutMs: this.options.timeoutMs,
@@ -69,8 +97,12 @@ export function buildDemucsArgs(inputPath: string, outDir: string, mode: DemucsS
   if (segmentSeconds !== undefined) {
     args.push('--segment', String(segmentSeconds));
   }
-  args.push(inputPath);
+  args.push('--', inputPath);
   return args;
+}
+
+export function buildSeparationKey(hash: string, mode: DemucsStemMode, segmentSeconds?: number): string {
+  return `${hash}:${mode}:${segmentSeconds ?? 'default'}`;
 }
 
 export function parseDemucsProgress(chunk: string): number | undefined {
