@@ -3,12 +3,14 @@ import { EngineDiagnosticsStore } from '../lib/diagnostics/EngineDiagnosticsStor
 import { ModulationAdapter } from '../lib/audio/modulationAdapter.js';
 import { runPerformanceMacro, cancelAllPendingMacros, getPendingMacroCount } from '../lib/audio/performanceMacros.js';
 import { SceneScheduler } from '../lib/playback/sceneScheduler.js';
+import type { TimelineRouteAction } from '../lib/playback/timelineEventRouter.js';
 import type {
   SceneTriggerPayload,
   StemControlPayload,
   EffectTogglePayload,
   MacroTriggerPayload,
   MacroSetValuePayload,
+  TimelineLoadPayload,
   TransportSeekPayload,
   ValidatedWubLabzEvent
 } from './protocol.js';
@@ -24,6 +26,9 @@ export class RuntimeController {
     this.diagnostics = new EngineDiagnosticsStore();
     this.modulationAdapter = new ModulationAdapter(this.engine);
     this.sceneScheduler = new SceneScheduler();
+    this.engine.setTimelineControlActionHandler((action) => {
+      this.handleTimelineControlAction(action);
+    });
   }
 
   initializeRuntime() {
@@ -75,6 +80,20 @@ export class RuntimeController {
       switch (event.type) {
         case 'HEARTBEAT':
           return { type: 'HEARTBEAT', payload: { ...event.payload, serverReceived: Date.now() } };
+
+        case 'TIMELINE_LOAD': {
+          const payload = event.payload as TimelineLoadPayload;
+          this.engine.loadTimeline(payload.events);
+          if (payload.bpm !== undefined) {
+            this.engine.setBpm(payload.bpm);
+          }
+          this.diagnostics.update({
+            emergencyStopped: false,
+            lastSchedulerError: null,
+            lastRouteError: null
+          });
+          break;
+        }
 
         case 'TRANSPORT_PLAY':
           this.engine.play();
@@ -168,6 +187,44 @@ export class RuntimeController {
     return { type: 'ENGINE_STATUS', payload: this.getRuntimeDiagnostics() };
   }
 
+  private handleTimelineControlAction(action: TimelineRouteAction): void {
+    let reason: string | undefined;
+
+    if (action.actionType === 'stemMute') {
+      const result = this.modulationAdapter.applyModulation({
+        effectId: action.bus,
+        parameter: 'mute',
+        value: action.muted ? 1 : 0
+      });
+      if (!result.success) reason = result.reason;
+    } else if (action.actionType === 'gainChange') {
+      const result = this.modulationAdapter.applyModulation({
+        effectId: action.bus,
+        parameter: 'volume',
+        value: action.value,
+        rampTime: action.rampTime
+      });
+      if (!result.success) reason = result.reason;
+    } else if (action.actionType === 'modulation') {
+      const result = this.modulationAdapter.applyModulation({
+        effectId: action.effectId,
+        parameter: action.parameter,
+        value: action.value,
+        ...(action.rampTime !== undefined ? { rampTime: action.rampTime } : {})
+      });
+      if (!result.success) reason = result.reason;
+    } else if (action.actionType === 'macro') {
+      const result = runPerformanceMacro(
+        action.macroId,
+        { transportSnapshot: this.engine.getTransportSnapshot() },
+        this.modulationAdapter
+      );
+      if (!result.success) reason = result.reason;
+    }
+
+    this.diagnostics.update({ lastRouteError: reason ?? null });
+  }
+
   handleEmergencyStop() {
     this.engine.emergencyStop();
     this.modulationAdapter.resetAllModulation();
@@ -192,8 +249,9 @@ export class RuntimeController {
     return { type: 'ENGINE_STATUS', payload: this.getRuntimeDiagnostics() };
   }
 
-  disposeRuntime() {
-    this.engine.stop();
+  async disposeRuntime(): Promise<void> {
     cancelAllPendingMacros();
+    this.engine.setTimelineControlActionHandler(undefined);
+    await this.engine.dispose();
   }
 }
