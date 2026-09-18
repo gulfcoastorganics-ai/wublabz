@@ -934,26 +934,37 @@ function resolveWorkerPath(fileName: string): string | undefined {
   }
 }
 
-async function runWorker<TInput, TOutput>(workerPath: string, input: TInput): Promise<TOutput> {
+export async function runWorker<TInput, TOutput>(workerPath: string, input: TInput): Promise<TOutput> {
   return await new Promise<TOutput>((resolve, reject) => {
     const worker = new Worker(workerPath);
     const payload: WorkerPayload<TInput, TOutput> = { input };
+    let settled = false;
 
-    worker.once('message', (message: WorkerPayload<TInput, TOutput>) => {
-      if (message.error) {
-        reject(new Error(message.error));
-      } else if (message.output !== undefined) {
-        resolve(message.output);
+    const finish = async (result: { output?: TOutput; error?: Error }): Promise<void> => {
+      if (settled) return;
+      settled = true;
+      await worker.terminate().catch(() => undefined);
+      if (result.error) {
+        reject(result.error);
+      } else if (result.output !== undefined) {
+        resolve(result.output);
       } else {
         reject(new Error('Worker returned no output'));
       }
+    };
 
-      worker.terminate().catch(() => undefined);
+    worker.once('message', (message: WorkerPayload<TInput, TOutput>) => {
+      void finish(message.error ? { error: new Error(message.error) } : { output: message.output });
     });
 
     worker.once('error', (error) => {
-      reject(error);
-      worker.terminate().catch(() => undefined);
+      void finish({ error });
+    });
+
+    worker.once('exit', (code) => {
+      if (!settled) {
+        void finish({ error: new Error(`Worker exited before returning output (code ${code}).`) });
+      }
     });
 
     worker.postMessage(payload);
