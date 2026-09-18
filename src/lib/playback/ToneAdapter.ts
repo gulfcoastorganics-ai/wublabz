@@ -100,7 +100,10 @@ export class ToneJsAdapter {
   private eventHandler: ((event: ScheduledTimelineEvent, command: ScheduledToneEvent) => void) | undefined;
   private scheduled = new Map<string, ScheduledToneEvent>();
   private activePlayers = new Map<string, TonePlayerLike>();
-  private activeTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private activeTimers = new Map<string,
+    | { kind: 'timer'; handle: ReturnType<typeof setTimeout> }
+    | { kind: 'transport'; handle: number }
+  >();
   private loadedClipIds = new Set<string>();
   private droppedEvents = 0;
   private lifecycleBound = false;
@@ -499,7 +502,7 @@ export class ToneJsAdapter {
       this.activePlayers.set(event.id, player);
 
       const effectivePlaybackRate = typeof event.payload?.playbackRate === 'number' ? event.payload.playbackRate : 1;
-      this.scheduleCleanup(event.id, clip, effectivePlaybackRate);
+      this.scheduleCleanup(event.id, clip, effectivePlaybackRate, scheduledTime);
 
       const offset = resolveClipOffsetSeconds(event, clip, scheduledTime);
       const duration = resolveClipDurationSeconds(event, clip, offset, scheduledTime);
@@ -511,21 +514,41 @@ export class ToneJsAdapter {
     }
   }
 
-  private scheduleCleanup(eventId: string, clip: LoadedClip<ToneAudioBufferLike>, playbackRate: number = 1): void {
+  private scheduleCleanup(
+    eventId: string,
+    clip: LoadedClip<ToneAudioBufferLike>,
+    playbackRate: number = 1,
+    scheduledTime: number = this.runtime?.Transport.seconds ?? 0
+  ): void {
     const rate = playbackRate > 0 ? playbackRate : 1;
     const realDuration = clip.duration / rate;
-    const cleanupDelayMs = Math.max(100, Math.round((realDuration + 0.5) * 1000));
-    const timer = setTimeout(() => {
-      this.disposeActivePlayer(eventId);
-    }, cleanupDelayMs);
+    const cleanupAt = Math.max(0, scheduledTime + realDuration + 0.5);
 
-    this.activeTimers.set(eventId, timer);
+    if (this.runtime) {
+      const handle = this.runtime.Transport.scheduleOnce(() => {
+        this.disposeActivePlayer(eventId, false);
+      }, cleanupAt);
+      this.activeTimers.set(eventId, { kind: 'transport', handle });
+      return;
+    }
+
+    const cleanupDelayMs = Math.max(100, Math.round((realDuration + 0.5) * 1000));
+    const handle = setTimeout(() => {
+      this.disposeActivePlayer(eventId, false);
+    }, cleanupDelayMs);
+    this.activeTimers.set(eventId, { kind: 'timer', handle });
   }
 
-  private disposeActivePlayer(eventId: string): void {
-    const timer = this.activeTimers.get(eventId);
-    if (timer) {
-      clearTimeout(timer);
+  private disposeActivePlayer(eventId: string, cancelCleanup = true): void {
+    const cleanup = this.activeTimers.get(eventId);
+    if (cleanup) {
+      if (cancelCleanup) {
+        if (cleanup.kind === 'timer') {
+          clearTimeout(cleanup.handle);
+        } else {
+          this.runtime?.Transport.clear(cleanup.handle);
+        }
+      }
       this.activeTimers.delete(eventId);
     }
 
