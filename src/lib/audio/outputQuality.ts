@@ -276,28 +276,43 @@ function coefficient(sampleRate: number, seconds: number): number {
   return Math.exp(-1 / (Math.max(1, sampleRate) * Math.max(0.001, seconds)));
 }
 
-function estimateIntersamplePeak(buffer: ChannelBuffer): number {
+export function estimateIntersamplePeak(buffer: ChannelBuffer): number {
   let peak = 0;
+
   for (const channel of buffer.channels) {
-    for (let i = 1; i < channel.length; i++) {
-      const previous = channel[i - 1];
-      const current = channel[i];
-      const transitionOvershoot = Math.abs(current - previous) * 0.02;
-      peak = Math.max(peak, Math.abs(previous), Math.abs(current), Math.abs((previous + current) * 0.5), Math.max(Math.abs(previous), Math.abs(current)) + transitionOvershoot);
+    if (channel.length === 0) continue;
+
+    for (let i = 0; i < channel.length; i++) {
+      peak = Math.max(peak, Math.abs(channel[i] ?? 0));
+    }
+
+    // Four-times oversampled Catmull-Rom reconstruction. This is a bounded,
+    // signal-derived estimate of between-sample extrema rather than the old
+    // fixed transition heuristic, and it catches overshoot on sharp
+    // high-frequency transitions without allocating an oversampled buffer.
+    for (let i = 0; i < channel.length - 1; i++) {
+      const y0 = channel[Math.max(0, i - 1)] ?? 0;
+      const y1 = channel[i] ?? 0;
+      const y2 = channel[i + 1] ?? y1;
+      const y3 = channel[Math.min(channel.length - 1, i + 2)] ?? y2;
+
+      for (let phase = 1; phase < 4; phase++) {
+        const t = phase / 4;
+        peak = Math.max(peak, Math.abs(catmullRom(y0, y1, y2, y3, t)));
+      }
     }
   }
+
   return peak;
 }
 
-function onePoleLowpass(channel: Float32Array, sampleRate: number, cutoffHz: number): Float32Array {
-  const output = new Float32Array(channel.length);
-  const dt = 1 / sampleRate;
-  const rc = 1 / (2 * Math.PI * Math.max(1, cutoffHz));
-  const alpha = dt / (rc + dt);
-  let previous = 0;
-  for (let i = 0; i < channel.length; i++) {
-    previous += alpha * (channel[i] - previous);
-    output[i] = previous;
-  }
-  return output;
+function catmullRom(y0: number, y1: number, y2: number, y3: number, t: number): number {
+  const t2 = t * t;
+  const t3 = t2 * t;
+  return 0.5 * (
+    (2 * y1) +
+    (-y0 + y2) * t +
+    (2 * y0 - 5 * y1 + 4 * y2 - y3) * t2 +
+    (-y0 + 3 * y1 - 3 * y2 + y3) * t3
+  );
 }
