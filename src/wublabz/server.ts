@@ -76,6 +76,29 @@ export async function createWubLabzServer(options: WubLabzServerOptions = {}) {
     return createHealthResponse(startedAtMs, now());
   });
 
+  server.post('/api/runtime/timeline', async (request, reply) => {
+    const body = request.body as { events?: unknown; bpm?: unknown } | undefined;
+    if (!body || !Array.isArray(body.events)) {
+      reply.code(400);
+      return { error: 'Request body must contain an events array.' };
+    }
+
+    try {
+      const bpm = typeof body.bpm === 'number' ? body.bpm : undefined;
+      const diagnostics = runtimeController.loadTimeline(body.events as any, bpm);
+      return {
+        status: 'ok',
+        eventCount: body.events.length,
+        diagnostics
+      };
+    } catch (error) {
+      reply.code(400);
+      return {
+        error: error instanceof Error ? error.message : 'Invalid timeline payload.'
+      };
+    }
+  });
+
   server.post(`${FLIP_PREP_API_PREFIX}/jobs`, async (request, reply) => {
     const response = await proxyFlipPrepRequest(flipPrepWorkerUrl, `${FLIP_PREP_API_PREFIX}/jobs`, {
       method: 'POST',
