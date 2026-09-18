@@ -253,9 +253,11 @@ describe('ToneJsAdapter', () => {
     expect(startArgs[2]).toBe(3.5); // duration
   });
 
-  it('scales cleanup delay based on playbackRate', async () => {
-    vi.useFakeTimers();
+  it('schedules player cleanup on the Tone transport clock instead of wall-clock timers', async () => {
     let disposeCalls = 0;
+    let nextScheduleId = 1;
+    const callbacks = new Map<number, (time: number) => void>();
+    const scheduleTimes = new Map<number, number>();
 
     const runtime: ToneLikeRuntime = {
       start: async () => undefined,
@@ -263,11 +265,16 @@ describe('ToneJsAdapter', () => {
       Transport: {
         bpm: { value: 120 },
         seconds: 0,
-        scheduleOnce: (callback) => {
-          callback(0);
-          return 1;
+        scheduleOnce: (callback, time) => {
+          const id = nextScheduleId++;
+          callbacks.set(id, callback);
+          scheduleTimes.set(id, time);
+          return id;
         },
-        clear: () => undefined,
+        clear: (id) => {
+          callbacks.delete(id);
+          scheduleTimes.delete(id);
+        },
         cancel: () => undefined,
         start: () => undefined,
         pause: () => undefined,
@@ -294,20 +301,20 @@ describe('ToneJsAdapter', () => {
     adapter.setBusGraph({ getBus: () => ({}), initialize: async () => {} } as any);
 
     const event = createScheduledEvent();
-    event.payload = { ...event.payload, playbackRate: 0.5 }; // Plays 2s clip over 4s
+    event.endTime = 4;
 
     await adapter.preloadEvents([event]);
     adapter.scheduleEvent(event);
+
+    const playbackCallback = callbacks.get(1);
+    expect(playbackCallback).toBeDefined();
+    playbackCallback?.(0);
     await Promise.resolve();
 
-    // At playbackRate 0.5, 2s clip takes 4s.
-    // Cleanup should happen AFTER 4s.
-    vi.advanceTimersByTime(2500);
     expect(disposeCalls).toBe(0);
+    expect(scheduleTimes.get(2)).toBe(4.5);
 
-    vi.advanceTimersByTime(2000);
+    callbacks.get(2)?.(4.5);
     expect(disposeCalls).toBe(1);
-
-    vi.useRealTimers();
   });
 });
