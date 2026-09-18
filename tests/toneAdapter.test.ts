@@ -263,8 +263,13 @@ describe('ToneJsAdapter', () => {
       Transport: {
         bpm: { value: 120 },
         seconds: 0,
-        scheduleOnce: (callback) => {
-          callback(0);
+        scheduleOnce: (callback, time) => {
+          const at = typeof time === 'number' ? time : 0;
+          if (at <= 0) {
+            callback(0);
+          } else {
+            setTimeout(() => callback(at), at * 1000);
+          }
           return 1;
         },
         clear: () => undefined,
