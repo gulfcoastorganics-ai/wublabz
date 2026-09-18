@@ -395,6 +395,9 @@ function mixArrangementStemsWithContext(stems: ChannelBuffer[], trackTypes: Remi
     for (let i = 0; i < frames; i++) {
       while (si < segments.length - 1 && i >= segments[si].endFrame) si++;
       const seg = segments[si];
+      if (!seg || i < seg.startFrame || i >= seg.endFrame) {
+        continue;
+      }
       const span = seg.endFrame - seg.startFrame;
       const t = span > 0 ? Math.max(0, Math.min(1, (i - seg.startFrame) / span)) : 0;
       let gain = (seg.startGain + (seg.endGain - seg.startGain) * t) * MIX_SAFETY;
