@@ -276,16 +276,55 @@ function coefficient(sampleRate: number, seconds: number): number {
   return Math.exp(-1 / (Math.max(1, sampleRate) * Math.max(0.001, seconds)));
 }
 
-function estimateIntersamplePeak(buffer: ChannelBuffer): number {
-  let peak = 0;
+function sinc(value: number): number {
+  if (Math.abs(value) < 1e-12) return 1;
+  const x = Math.PI * value;
+  return Math.sin(x) / x;
+}
+
+function blackmanWindow(normalizedDistance: number): number {
+  if (Math.abs(normalizedDistance) > 1) return 0;
+  const phase = Math.PI * normalizedDistance;
+  return 0.42 + 0.5 * Math.cos(phase) + 0.08 * Math.cos(2 * phase);
+}
+
+/**
+ * Estimate reconstructed (true) peak by 4x oversampling with a finite
+ * Blackman-windowed sinc interpolator. This is intentionally more expensive
+ * than sample-peak measurement and is used only on final/master buffers.
+ */
+export function estimateIntersamplePeak(buffer: ChannelBuffer, oversampleFactor = 4): number {
+  const factor = Math.max(2, Math.floor(oversampleFactor));
+  const radius = 8;
+  let peak = getPeakAmplitude(buffer);
+
   for (const channel of buffer.channels) {
-    for (let i = 1; i < channel.length; i++) {
-      const previous = channel[i - 1];
-      const current = channel[i];
-      const transitionOvershoot = Math.abs(current - previous) * 0.02;
-      peak = Math.max(peak, Math.abs(previous), Math.abs(current), Math.abs((previous + current) * 0.5), Math.max(Math.abs(previous), Math.abs(current)) + transitionOvershoot);
+    if (channel.length < 2) continue;
+
+    for (let i = 0; i < channel.length - 1; i++) {
+      for (let phase = 1; phase < factor; phase++) {
+        const position = i + phase / factor;
+        const center = Math.floor(position);
+        let value = 0;
+        let weightSum = 0;
+
+        for (let tap = center - radius + 1; tap <= center + radius; tap++) {
+          if (tap < 0 || tap >= channel.length) continue;
+          const distance = position - tap;
+          const window = blackmanWindow(distance / radius);
+          const weight = sinc(distance) * window;
+          value += channel[tap] * weight;
+          weightSum += weight;
+        }
+
+        if (Math.abs(weightSum) > 1e-12) {
+          value /= weightSum;
+        }
+        peak = Math.max(peak, Math.abs(value));
+      }
     }
   }
+
   return peak;
 }
 
