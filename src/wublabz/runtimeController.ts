@@ -3,6 +3,7 @@ import { EngineDiagnosticsStore } from '../lib/diagnostics/EngineDiagnosticsStor
 import { ModulationAdapter } from '../lib/audio/modulationAdapter.js';
 import { runPerformanceMacro, cancelAllPendingMacros, getPendingMacroCount } from '../lib/audio/performanceMacros.js';
 import { SceneScheduler } from '../lib/playback/sceneScheduler.js';
+import type { TimelineEventV2 } from '../lib/producer/types.js';
 import type {
   SceneTriggerPayload,
   StemControlPayload,
@@ -58,6 +59,24 @@ export class RuntimeController {
 
   setActiveConnectionCount(count: number) {
     (this as any).activeConnectionCount = count;
+  }
+
+  loadTimeline(events: TimelineEventV2[], bpm?: number) {
+    if (!Array.isArray(events) || events.length === 0) {
+      throw new Error('Timeline must contain at least one event');
+    }
+    if (bpm !== undefined) {
+      if (!Number.isFinite(bpm) || bpm <= 0) {
+        throw new Error('Timeline BPM must be a positive finite number');
+      }
+      this.engine.setBpm(bpm);
+    }
+    this.engine.transport.loadTimeline(events);
+    this.diagnostics.update({
+      lastSchedulerError: null,
+      emergencyStopped: false
+    });
+    return this.getRuntimeDiagnostics();
   }
 
   handleIntent(event: ValidatedWubLabzEvent) {
